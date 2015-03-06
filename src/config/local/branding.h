@@ -1,0 +1,7 @@
+#define PRODUCT_NAME ""
+#define PRODUCT_SHORT_NAME "DLPXE"
+#define PRODUCT_URI "http://displaylink.com/DLPXE"
+#define PRODUCT_TAG_LINE "DisplayLink Network Boot Firmware"
+#define PRODUCT_ERROR_URI "http://dlpxe.org/%08x"
+#define PRODUCT_COMMAND_URI "http://dlpxe.org/cmd/%s"
+#define PRODUCT_SETTING_URI "http://dlpxe.org/cfg/%s"
