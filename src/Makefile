@@ -177,6 +177,13 @@ vmware : bin/8086100f.mrom bin/808610d3.mrom bin/10222000.rom bin/15ad07b0.rom
 
 ###############################################################################
 #
+# DisplayLink build target: ncm builds for USB flash key and known xHCI
+#
+displaylink : bin/ncm.usb bin/ncm.rom bin/80869cb1--ncm.rom
+	zip bin/DisplayLinkLegacyPXE $^ Readme.txt
+
+###############################################################################
+#
 # Build targets that do nothing but might be tried by users
 #
 configure :
