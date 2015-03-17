@@ -164,7 +164,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #define ERRFILE_ecm		     ( ERRFILE_DRIVER | 0x006c0000 )
 #define ERRFILE_ncm		     ( ERRFILE_DRIVER | 0x006d0000 )
 #define ERRFILE_usbnet		     ( ERRFILE_DRIVER | 0x006e0000 )
-
+#define ERRFILE_dm96xx		     ( ERRFILE_DRIVER | 0x006f0000 )
 #define ERRFILE_scsi		     ( ERRFILE_DRIVER | 0x00700000 )
 #define ERRFILE_arbel		     ( ERRFILE_DRIVER | 0x00710000 )
 #define ERRFILE_hermon		     ( ERRFILE_DRIVER | 0x00720000 )
@@ -172,6 +172,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #define ERRFILE_ata		     ( ERRFILE_DRIVER | 0x00740000 )
 #define ERRFILE_srp		     ( ERRFILE_DRIVER | 0x00750000 )
 #define ERRFILE_qib7322		     ( ERRFILE_DRIVER | 0x00760000 )
+#define ERRFILE_smsc75xx	     ( ERRFILE_DRIVER | 0x00770000 )
 
 #define ERRFILE_aoe			( ERRFILE_NET | 0x00000000 )
 #define ERRFILE_arp			( ERRFILE_NET | 0x00010000 )

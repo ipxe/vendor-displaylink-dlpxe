@@ -26,6 +26,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <errno.h>
 #include <assert.h>
@@ -1736,11 +1737,12 @@ void free_usb_hub ( struct usb_hub *hub ) {
  *
  * @v dev		Underlying hardware device
  * @v ports		Number of root hub ports
+ * @v mtu		Largest transfer allowed on the bus
  * @v op		Host controller operations
  * @ret bus		USB bus, or NULL on allocation failure
  */
 struct usb_bus * alloc_usb_bus ( struct device *dev, unsigned int ports,
-				 struct usb_host_operations *op ) {
+				 size_t mtu, struct usb_host_operations *op ) {
 	struct usb_bus *bus;
 
 	/* Allocate and initialise structure */
@@ -1749,6 +1751,7 @@ struct usb_bus * alloc_usb_bus ( struct device *dev, unsigned int ports,
 		goto err_alloc_bus;
 	bus->name = dev->name;
 	bus->dev = dev;
+	bus->mtu = mtu;
 	bus->op = op;
 	INIT_LIST_HEAD ( &bus->devices );
 	INIT_LIST_HEAD ( &bus->hubs );
@@ -1845,6 +1848,49 @@ void free_usb_bus ( struct usb_bus *bus ) {
 
 	/* Free bus */
 	free ( bus );
+}
+
+/******************************************************************************
+ *
+ * USB address assignment
+ *
+ ******************************************************************************
+ */
+
+/**
+ * Allocate device address
+ *
+ * @v bus		USB bus
+ * @ret address		Device address, or negative error
+ */
+int usb_alloc_address ( struct usb_bus *bus ) {
+	unsigned int address;
+
+	/* Find first free device address */
+	address = ffsll ( ~bus->addresses );
+	if ( ! address )
+		return -ENOENT;
+
+	/* Mark address as used */
+	bus->addresses |= ( 1ULL << ( address - 1 ) );
+
+	return address;
+}
+
+/**
+ * Free device address
+ *
+ * @v bus		USB bus
+ * @v address		Device address
+ */
+void usb_free_address ( struct usb_bus *bus, unsigned int address ) {
+
+	/* Sanity check */
+	assert ( address > 0 );
+	assert ( bus->addresses & ( 1ULL << ( address - 1 ) ) );
+
+	/* Mark address as free */
+	bus->addresses &= ~( 1ULL << ( address - 1 ) );
 }
 
 /******************************************************************************

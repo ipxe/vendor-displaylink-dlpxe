@@ -556,16 +556,15 @@ static void xhci_legacy_init ( struct xhci_device *xhci ) {
  * Claim ownership from BIOS
  *
  * @v xhci		xHCI device
- * @ret rc		Return status code
  */
-static int xhci_legacy_claim ( struct xhci_device *xhci ) {
+static void xhci_legacy_claim ( struct xhci_device *xhci ) {
 	uint32_t ctlsts;
 	uint8_t bios;
 	unsigned int i;
 
 	/* Do nothing unless legacy support capability is present */
 	if ( ! xhci->legacy )
-		return 0;
+		return;
 
 	/* Claim ownership */
 	writeb ( XHCI_USBLEGSUP_OS_OWNED,
@@ -585,16 +584,19 @@ static int xhci_legacy_claim ( struct xhci_device *xhci ) {
 				DBGC ( xhci, "XHCI %p warning: BIOS retained "
 				       "SMIs: %08x\n", xhci, ctlsts );
 			}
-			return 0;
+			return;
 		}
 
 		/* Delay */
 		mdelay ( 1 );
 	}
 
-	DBGC ( xhci, "XHCI %p timed out waiting for BIOS to release "
-	       "ownership\n", xhci );
-	return -ETIMEDOUT;
+	/* BIOS did not release ownership.  Claim it forcibly by
+	 * disabling all SMIs.
+	 */
+	DBGC ( xhci, "XHCI %p could not claim ownership from BIOS: forcibly "
+	       "disabling SMIs\n", xhci );
+	writel ( 0, xhci->cap + xhci->legacy + XHCI_USBLEGSUP_CTLSTS );
 }
 
 /**
@@ -3019,7 +3021,8 @@ static struct usb_host_operations xhci_operations = {
  * @v xhci		xHCI device
  * @v pci		PCI device
  */
-static void xhci_pch ( struct xhci_device *xhci, struct pci_device *pci ) {
+static void xhci_pch_fix ( struct xhci_device *xhci, struct pci_device *pci ) {
+	struct xhci_pch *pch = &xhci->pch;
 	uint32_t xusb2pr;
 	uint32_t xusb2prm;
 	uint32_t usb3pssen;
@@ -3034,6 +3037,7 @@ static void xhci_pch ( struct xhci_device *xhci, struct pci_device *pci ) {
 		DBGC ( xhci, "XHCI %p enabling SuperSpeed on ports %08x\n",
 		       xhci, ( usb3prm & ~usb3pssen ) );
 	}
+	pch->usb3pssen = usb3pssen;
 	usb3pssen |= usb3prm;
 	pci_write_config_dword ( pci, XHCI_PCH_USB3PSSEN, usb3pssen );
 
@@ -3044,8 +3048,25 @@ static void xhci_pch ( struct xhci_device *xhci, struct pci_device *pci ) {
 		DBGC ( xhci, "XHCI %p routing ports %08x from EHCI to xHCI\n",
 		       xhci, ( xusb2prm & ~xusb2pr ) );
 	}
+	pch->xusb2pr = xusb2pr;
 	xusb2pr |= xusb2prm;
 	pci_write_config_dword ( pci, XHCI_PCH_XUSB2PR, xusb2pr );
+}
+
+/**
+ * Undo Intel PCH-specific quirk fixes
+ *
+ * @v xhci		xHCI device
+ * @v pci		PCI device
+ */
+static void xhci_pch_undo ( struct xhci_device *xhci, struct pci_device *pci ) {
+	struct xhci_pch *pch = &xhci->pch;
+
+	/* Restore USB2 port routing to original state */
+	pci_write_config_dword ( pci, XHCI_PCH_XUSB2PR, pch->xusb2pr );
+
+	/* Restore SuperSpeed capability to original state */
+	pci_write_config_dword ( pci, XHCI_PCH_USB3PSSEN, pch->usb3pssen );
 }
 
 /**
@@ -3086,19 +3107,18 @@ static int xhci_probe ( struct pci_device *pci ) {
 
 	/* Initialise USB legacy support and claim ownership */
 	xhci_legacy_init ( xhci );
-	if ( ( rc = xhci_legacy_claim ( xhci ) ) != 0 )
-		goto err_legacy_claim;
+	xhci_legacy_claim ( xhci );
 
 	/* Fix Intel PCH-specific quirks, if applicable */
 	if ( pci->id->driver_data & XHCI_PCH )
-		xhci_pch ( xhci, pci );
+		xhci_pch_fix ( xhci, pci );
 
 	/* Reset device */
 	if ( ( rc = xhci_reset ( xhci ) ) != 0 )
 		goto err_reset;
 
 	/* Allocate USB bus */
-	xhci->bus = alloc_usb_bus ( &pci->dev, xhci->ports,
+	xhci->bus = alloc_usb_bus ( &pci->dev, xhci->ports, XHCI_MTU,
 				    &xhci_operations );
 	if ( ! xhci->bus ) {
 		rc = -ENOMEM;
@@ -3126,8 +3146,9 @@ static int xhci_probe ( struct pci_device *pci ) {
  err_alloc_bus:
 	xhci_reset ( xhci );
  err_reset:
+	if ( pci->id->driver_data & XHCI_PCH )
+		xhci_pch_undo ( xhci, pci );
 	xhci_legacy_release ( xhci );
- err_legacy_claim:
 	iounmap ( xhci->regs );
  err_ioremap:
 	free ( xhci );
@@ -3147,6 +3168,8 @@ static void xhci_remove ( struct pci_device *pci ) {
 	unregister_usb_bus ( bus );
 	free_usb_bus ( bus );
 	xhci_reset ( xhci );
+	if ( pci->id->driver_data & XHCI_PCH )
+		xhci_pch_undo ( xhci, pci );
 	xhci_legacy_release ( xhci );
 	iounmap ( xhci->regs );
 	free ( xhci );
