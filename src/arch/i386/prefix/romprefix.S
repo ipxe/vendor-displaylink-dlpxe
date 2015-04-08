@@ -91,7 +91,7 @@ pciheader:
 	.ascii	"PCIR"			/* Signature */
 	.word	pci_vendor_id		/* Vendor identification */ 
 	.word	pci_device_id		/* Device identification */
-	.word	0x0000			/* Device list pointer */
+	.word	( pci_device_list - pciheader ) /* Device list pointer */
 	.word	pciheader_len		/* PCI data structure length */
 	.byte	0x03			/* PCI data structure revision */
 	.byte	0x02, 0x00, 0x00	/* Class code */
@@ -106,6 +106,11 @@ pciheader_runtime_length:
 	.word	0x0000			/* DMTF CLP entry point */
 	.equ pciheader_len, . - pciheader
 	.size pciheader, . - pciheader
+
+	// This is a temporary hack
+pci_device_list:
+	.word	0x9cb1			/* xHCI device ID */
+	.word	0x0000
 
 	.section ".zinfo.fixup", "a", @progbits	/* Compressor fixups */
 	.ascii	ZINFO_TYPE_ADxW
@@ -775,7 +780,10 @@ exec:	/* Set %ds = %cs */
 
 	/* Store PCI bus:dev.fn, if applicable */
 .ifeqs	BUSTYPE, "PCIR"
-	movw	%ax, autoboot_busdevfn
+	// Hack to allow for a combined ROM image which will work from
+	// xHCI when started in "USB3=Auto" mode (in which case the
+	// BIOS will request a boot from the EHCI controller)
+	//	movw %ax, autoboot_busdevfn
 .endif
 
 	/* Call main() */
