@@ -21,7 +21,7 @@
 
 FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
-#include <config/general.h>
+#include <config/usb.h>
 
 /** @file
  *
@@ -36,4 +36,7 @@ PROVIDE_REQUIRING_SYMBOL();
  */
 #ifdef USB_HCD_XHCI
 REQUIRE_OBJECT ( xhci );
+#endif
+#ifdef USB_HCD_EHCI
+REQUIRE_OBJECT ( ehci );
 #endif

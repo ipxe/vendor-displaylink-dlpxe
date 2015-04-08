@@ -249,6 +249,9 @@ struct usb_endpoint_descriptor {
 /** Endpoint attribute transfer type mask */
 #define USB_ENDPOINT_ATTR_TYPE_MASK 0x03
 
+/** Endpoint periodic type */
+#define USB_ENDPOINT_ATTR_PERIODIC 0x01
+
 /** Control endpoint transfer type */
 #define USB_ENDPOINT_ATTR_CONTROL 0x00
 
@@ -380,10 +383,11 @@ struct usb_endpoint {
 
 	/** Endpoint is open */
 	int open;
-	/** Current failure state (if any) */
-	int rc;
 	/** Buffer fill level */
 	unsigned int fill;
+
+	/** List of halted endpoints */
+	struct list_head halted;
 
 	/** Host controller operations */
 	struct usb_endpoint_host_operations *host;
@@ -754,7 +758,7 @@ struct usb_port {
 	 */
 	struct usb_device *usb;
 	/** List of changed ports */
-	struct list_head list;
+	struct list_head changed;
 };
 
 /** A USB hub */
@@ -773,6 +777,8 @@ struct usb_hub {
 	/** List of hubs */
 	struct list_head list;
 
+	/** Host controller operations */
+	struct usb_hub_host_operations *host;
 	/** Driver operations */
 	struct usb_hub_driver_operations *driver;
 	/** Driver private data */
@@ -785,7 +791,22 @@ struct usb_hub {
 	struct usb_port port[0];
 };
 
-/** USB hub operations */
+/** USB hub host controller operations */
+struct usb_hub_host_operations {
+	/** Open hub
+	 *
+	 * @v hub		USB hub
+	 * @ret rc		Return status code
+	 */
+	int ( * open ) ( struct usb_hub *hub );
+	/** Close hub
+	 *
+	 * @v hub		USB hub
+	 */
+	void ( * close ) ( struct usb_hub *hub );
+};
+
+/** USB hub driver operations */
 struct usb_hub_driver_operations {
 	/** Open hub
 	 *
@@ -819,6 +840,15 @@ struct usb_hub_driver_operations {
 	 * @ret rc		Return status code
 	 */
 	int ( * speed ) ( struct usb_hub *hub, struct usb_port *port );
+	/** Clear transaction translator buffer
+	 *
+	 * @v hub		USB hub
+	 * @v port		USB port
+	 * @v ep		USB endpoint
+	 * @ret rc		Return status code
+	 */
+	int ( * clear_tt ) ( struct usb_hub *hub, struct usb_port *port,
+			     struct usb_endpoint *ep );
 };
 
 /**
@@ -888,6 +918,8 @@ struct usb_bus {
 	struct list_head hubs;
 	/** List of changed ports */
 	struct list_head changed;
+	/** List of halted endpoints */
+	struct list_head halted;
 	/** Process */
 	struct process process;
 
@@ -925,8 +957,10 @@ struct usb_host_operations {
 	struct usb_device_host_operations device;
 	/** Bus operations */
 	struct usb_bus_host_operations bus;
+	/** Hub operations */
+	struct usb_hub_host_operations hub;
 	/** Root hub operations */
-	struct usb_hub_driver_operations hub;
+	struct usb_hub_driver_operations root;
 };
 
 /**
@@ -1177,18 +1211,44 @@ extern void usb_free_address ( struct usb_bus *bus, unsigned int address );
 extern unsigned int usb_route_string ( struct usb_device *usb );
 extern unsigned int usb_depth ( struct usb_device *usb );
 extern struct usb_port * usb_root_hub_port ( struct usb_device *usb );
+extern struct usb_port * usb_transaction_translator ( struct usb_device *usb );
+
+/** Minimum reset time
+ *
+ * Section 7.1.7.5 of the USB2 specification states that root hub
+ * ports should assert reset signalling for at least 50ms.
+ */
+#define USB_RESET_DELAY_MS 50
+
+/** Reset recovery time
+ *
+ * Section 9.2.6.2 of the USB2 specification states that the
+ * "recovery" interval after a port reset is 10ms.
+ */
+#define USB_RESET_RECOVER_DELAY_MS 10
 
 /** Maximum time to wait for a control transaction to complete
  *
- * This is a policy decision.
+ * Section 9.2.6.1 of the USB2 specification states that the upper
+ * limit for commands to be processed is 5 seconds.
  */
-#define USB_CONTROL_MAX_WAIT_MS 100
+#define USB_CONTROL_MAX_WAIT_MS 5000
+
+/** Set address recovery time
+ *
+ * Section 9.2.6.3 of the USB2 specification states that devices are
+ * allowed a 2ms recovery interval after receiving a new address.
+ */
+#define USB_SET_ADDRESS_RECOVER_DELAY_MS 2
 
 /** Time to wait for ports to stabilise
  *
- * This is a policy decision.
+ * Section 7.1.7.3 of the USB specification states that we must allow
+ * 100ms for devices to signal attachment, and an additional 100ms for
+ * connection debouncing.  (This delay is parallelised across all
+ * ports on a hub; we do not delay separately for each port.)
  */
-#define USB_PORT_DELAY_MS 100
+#define USB_PORT_DELAY_MS 200
 
 /** A USB device ID */
 struct usb_device_id {
