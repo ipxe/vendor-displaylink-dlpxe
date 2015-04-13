@@ -780,10 +780,9 @@ exec:	/* Set %ds = %cs */
 
 	/* Store PCI bus:dev.fn, if applicable */
 .ifeqs	BUSTYPE, "PCIR"
-	// Hack to allow for a combined ROM image which will work from
-	// xHCI when started in "USB3=Auto" mode (in which case the
-	// BIOS will request a boot from the EHCI controller)
-	//	movw %ax, autoboot_busdevfn
+#ifdef AUTOBOOT_ROM_FILTER
+	movw	%ax, autoboot_busdevfn
+#endif /* AUTOBOOT_ROM_FILTER */
 .endif
 
 	/* Call main() */

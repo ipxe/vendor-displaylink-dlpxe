@@ -63,4 +63,5 @@
 //#define IPSTAT_CMD		/* IP statistics commands */
 //#define PROFSTAT_CMD		/* Profiling commands */
 #undef	NONPNP_HOOK_INT19	/* Hook INT19 on non-PnP BIOSes */
+#undef	AUTOBOOT_ROM_FILTER	/* Autoboot only devices matching our ROM */
 //#undef	ERRMSG_80211		/* All 802.11 error descriptions (~3.3kb) */
