@@ -91,7 +91,7 @@ pciheader:
 	.ascii	"PCIR"			/* Signature */
 	.word	pci_vendor_id		/* Vendor identification */ 
 	.word	pci_device_id		/* Device identification */
-	.word	( pci_device_list - pciheader ) /* Device list pointer */
+	.word	( pci_devlist - pciheader ) /* Device list pointer */
 	.word	pciheader_len		/* PCI data structure length */
 	.byte	0x03			/* PCI data structure revision */
 	.byte	0x02, 0x00, 0x00	/* Class code */
@@ -107,10 +107,16 @@ pciheader_runtime_length:
 	.equ pciheader_len, . - pciheader
 	.size pciheader, . - pciheader
 
-	// This is a temporary hack
-pci_device_list:
-	.word	0x9cb1			/* xHCI device ID */
-	.word	0x0000
+	/* PCI additional device list (filled in by linker) */
+	.section ".pci_devlist.00000000", "a", @progbits
+pci_devlist:
+	.previous
+	.section ".pci_devlist.ffffffff", "a", @progbits
+pci_devlist_end:
+	.short	0x0000 /* List terminator */
+	.previous
+	/* Ensure that terminator is always present */
+	.reloc pciheader, RELOC_TYPE_NONE, pci_devlist_end
 
 	.section ".zinfo.fixup", "a", @progbits	/* Compressor fixups */
 	.ascii	ZINFO_TYPE_ADxW
