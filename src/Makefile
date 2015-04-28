@@ -181,6 +181,8 @@ vmware : bin/8086100f.mrom bin/808610d3.mrom bin/10222000.rom bin/15ad07b0.rom
 #
 displaylink : bin/80869ca6--80869cb1--ncm.rom \
 	      bin/80861c26--80861c2d--ncm.rom bin/10330194--ncm.rom \
+	      bin/80861c26--80869d2f--ncm.rom \
+	      bin/80869cb1--ncm.rom \
 	      bin/ncm.usb bin/ncm.rom
 	zip bin/DisplayLinkLegacyPXE $^ Readme.txt
 
