@@ -1878,6 +1878,8 @@ static struct pci_device_id ehci_ids[] = {
 	PCI_ROM ( 0x8086, 0x9ca6, "ehci-pch", "EHCI (Intel PCH Z97)", 0 ),
 	PCI_ROM ( 0x8086, 0x1c26, "ehci-cp1", "EHCI (Cougar Point #1)", 0 ),
 	PCI_ROM ( 0x8086, 0x1c2d, "ehci-cp2", "EHCI (Cougar Point #2)", 0 ),
+	PCI_ROM ( 0x8086, 0x8c26, "ehci-lp1", "EHCI (Lynx Point #2)", 0 ),
+	PCI_ROM ( 0x8086, 0x8c2d, "ehci-lp2", "EHCI (Lynx Point #2)", 0 ),
 	PCI_ROM ( 0xffff, 0xffff, "ehci", "EHCI", 0 ),
 };
 
