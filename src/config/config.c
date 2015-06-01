@@ -84,6 +84,9 @@ REQUIRE_OBJECT ( debugcon );
 #ifdef CONSOLE_VESAFB
 REQUIRE_OBJECT ( vesafb );
 #endif
+#ifdef CONSOLE_INT13
+REQUIRE_OBJECT ( int13con );
+#endif
 
 /*
  * Drag in all requested network protocols
@@ -336,6 +339,9 @@ REQUIRE_OBJECT ( cpuid_settings );
 #endif
 #ifdef MEMMAP_SETTINGS
 REQUIRE_OBJECT ( memmap_settings );
+#endif
+#ifdef VRAM_SETTINGS
+REQUIRE_OBJECT ( vram_settings );
 #endif
 
 /*

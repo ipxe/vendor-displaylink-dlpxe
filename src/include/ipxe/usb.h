@@ -54,6 +54,16 @@ enum usb_speed {
 	USB_SPEED_SUPER = USB_SPEED ( 5, 3 ),
 };
 
+/** USB packet IDs */
+enum usb_pid {
+	/** IN PID */
+	USB_PID_IN = 0x69,
+	/** OUT PID */
+	USB_PID_OUT = 0xe1,
+	/** SETUP PID */
+	USB_PID_SETUP = 0x2d,
+};
+
 /** A USB setup data packet */
 struct usb_setup_packet {
 	/** Request */
@@ -267,8 +277,11 @@ struct usb_endpoint_descriptor {
 /** Bulk IN endpoint (internal) type */
 #define USB_BULK_IN ( USB_ENDPOINT_ATTR_BULK | USB_DIR_IN )
 
-/** Interrupt endpoint (internal) type */
-#define USB_INTERRUPT ( USB_ENDPOINT_ATTR_INTERRUPT | USB_DIR_IN )
+/** Interrupt IN endpoint (internal) type */
+#define USB_INTERRUPT_IN ( USB_ENDPOINT_ATTR_INTERRUPT | USB_DIR_IN )
+
+/** Interrupt OUT endpoint (internal) type */
+#define USB_INTERRUPT_OUT ( USB_ENDPOINT_ATTR_INTERRUPT | USB_DIR_OUT )
 
 /** USB endpoint MTU */
 #define USB_ENDPOINT_MTU(sizes) ( ( (sizes) >> 0 ) & 0x07ff )
@@ -433,12 +446,10 @@ struct usb_endpoint_host_operations {
 	/** Enqueue message transfer
 	 *
 	 * @v ep		USB endpoint
-	 * @v packet		Setup packet
-	 * @v iobuf		I/O buffer (if any)
+	 * @v iobuf		I/O buffer
 	 * @ret rc		Return status code
 	 */
 	int ( * message ) ( struct usb_endpoint *ep,
-			    struct usb_setup_packet *setup,
 			    struct io_buffer *iobuf );
 	/** Enqueue stream transfer
 	 *
@@ -554,6 +565,7 @@ usb_endpoint_get_hostdata ( struct usb_endpoint *ep ) {
 	return ep->priv;
 }
 
+extern const char * usb_endpoint_name ( struct usb_endpoint *ep );
 extern int
 usb_endpoint_described ( struct usb_endpoint *ep,
 			 struct usb_configuration_descriptor *config,
@@ -749,6 +761,12 @@ struct usb_port {
 	unsigned int protocol;
 	/** Port speed */
 	unsigned int speed;
+	/** Port disconnection has been detected
+	 *
+	 * This should be set whenever the underlying hardware reports
+	 * a connection status change.
+	 */
+	int disconnected;
 	/** Port has an attached device */
 	int attached;
 	/** Currently attached device (if in use)
@@ -912,16 +930,12 @@ struct usb_bus {
 	/** Root hub */
 	struct usb_hub *hub;
 
+	/** List of USB buses */
+	struct list_head list;
 	/** List of devices */
 	struct list_head devices;
 	/** List of hubs */
 	struct list_head hubs;
-	/** List of changed ports */
-	struct list_head changed;
-	/** List of halted endpoints */
-	struct list_head halted;
-	/** Process */
-	struct process process;
 
 	/** Host controller operations */
 	struct usb_bus_host_operations *host;
@@ -994,6 +1008,10 @@ static inline __attribute__ (( always_inline )) void
 usb_poll ( struct usb_bus *bus ) {
 	bus->host->poll ( bus );
 }
+
+/** Iterate over all USB buses */
+#define for_each_usb_bus( bus ) \
+	list_for_each_entry ( (bus), &usb_buses, list )
 
 /**
  * Complete transfer (without error)
@@ -1178,6 +1196,8 @@ usb_set_interface ( struct usb_device *usb, unsigned int interface,
 			     NULL, 0 );
 }
 
+extern struct list_head usb_buses;
+
 extern struct usb_interface_descriptor *
 usb_interface_descriptor ( struct usb_configuration_descriptor *config,
 			   unsigned int interface, unsigned int alternate );
@@ -1205,6 +1225,8 @@ extern struct usb_bus * alloc_usb_bus ( struct device *dev,
 extern int register_usb_bus ( struct usb_bus *bus );
 extern void unregister_usb_bus ( struct usb_bus *bus );
 extern void free_usb_bus ( struct usb_bus *bus );
+extern struct usb_bus * find_usb_bus_by_location ( unsigned int bus_type,
+						   unsigned int location );
 
 extern int usb_alloc_address ( struct usb_bus *bus );
 extern void usb_free_address ( struct usb_bus *bus, unsigned int address );

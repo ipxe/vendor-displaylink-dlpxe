@@ -80,6 +80,9 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #define ERRFILE_usbhub		     ( ERRFILE_DRIVER | 0x00080000 )
 #define ERRFILE_xhci		     ( ERRFILE_DRIVER | 0x00090000 )
 #define ERRFILE_ehci		     ( ERRFILE_DRIVER | 0x000a0000 )
+#define ERRFILE_uhci		     ( ERRFILE_DRIVER | 0x000b0000 )
+#define ERRFILE_usbhid		     ( ERRFILE_DRIVER | 0x000c0000 )
+#define ERRFILE_usbkbd		     ( ERRFILE_DRIVER | 0x000d0000 )
 
 #define ERRFILE_nvs		     ( ERRFILE_DRIVER | 0x00100000 )
 #define ERRFILE_spi		     ( ERRFILE_DRIVER | 0x00110000 )
@@ -174,6 +177,8 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #define ERRFILE_srp		     ( ERRFILE_DRIVER | 0x00750000 )
 #define ERRFILE_qib7322		     ( ERRFILE_DRIVER | 0x00760000 )
 #define ERRFILE_smsc75xx	     ( ERRFILE_DRIVER | 0x00770000 )
+#define ERRFILE_intelvf		     ( ERRFILE_DRIVER | 0x00780000 )
+#define ERRFILE_intelxvf	     ( ERRFILE_DRIVER | 0x00790000 )
 
 #define ERRFILE_aoe			( ERRFILE_NET | 0x00000000 )
 #define ERRFILE_arp			( ERRFILE_NET | 0x00010000 )

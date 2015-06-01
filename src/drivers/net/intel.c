@@ -252,32 +252,6 @@ static int intel_fetch_mac ( struct intel_nic *intel, uint8_t *hw_addr ) {
 
 /******************************************************************************
  *
- * Diagnostics
- *
- ******************************************************************************
- */
-
-/**
- * Dump diagnostic information
- *
- * @v intel		Intel device
- */
-static void __attribute__ (( unused )) intel_diag ( struct intel_nic *intel ) {
-
-	DBGC ( intel, "INTEL %p TX %04x(%02x)/%04x(%02x) "
-	       "RX %04x(%02x)/%04x(%02x)\n", intel,
-	       ( intel->tx.cons & 0xffff ),
-	       readl ( intel->regs + intel->tx.reg + INTEL_xDH ),
-	       ( intel->tx.prod & 0xffff ),
-	       readl ( intel->regs + intel->tx.reg + INTEL_xDT ),
-	       ( intel->rx.cons & 0xffff ),
-	       readl ( intel->regs + intel->rx.reg + INTEL_xDH ),
-	       ( intel->rx.prod & 0xffff ),
-	       readl ( intel->regs + intel->rx.reg + INTEL_xDT ) );
-}
-
-/******************************************************************************
- *
  * Device reset
  *
  ******************************************************************************
@@ -371,6 +345,67 @@ static void intel_check_link ( struct net_device *netdev ) {
 	} else {
 		netdev_link_down ( netdev );
 	}
+}
+
+/******************************************************************************
+ *
+ * Descriptors
+ *
+ ******************************************************************************
+ */
+
+/**
+ * Populate transmit descriptor
+ *
+ * @v tx		Transmit descriptor
+ * @v addr		Data buffer address
+ * @v len		Length of data
+ */
+void intel_describe_tx ( struct intel_descriptor *tx, physaddr_t addr,
+			 size_t len ) {
+
+	/* Populate transmit descriptor */
+	tx->address = cpu_to_le64 ( addr );
+	tx->length = cpu_to_le16 ( len );
+	tx->flags = 0;
+	tx->command = ( INTEL_DESC_CMD_RS | INTEL_DESC_CMD_IFCS |
+			INTEL_DESC_CMD_EOP );
+	tx->status = 0;
+}
+
+/**
+ * Populate advanced transmit descriptor
+ *
+ * @v tx		Transmit descriptor
+ * @v addr		Data buffer address
+ * @v len		Length of data
+ */
+void intel_describe_tx_adv ( struct intel_descriptor *tx, physaddr_t addr,
+			     size_t len ) {
+
+	/* Populate advanced transmit descriptor */
+	tx->address = cpu_to_le64 ( addr );
+	tx->length = cpu_to_le16 ( len );
+	tx->flags = INTEL_DESC_FL_DTYP_DATA;
+	tx->command = ( INTEL_DESC_CMD_DEXT | INTEL_DESC_CMD_RS |
+			INTEL_DESC_CMD_IFCS | INTEL_DESC_CMD_EOP );
+	tx->status = cpu_to_le32 ( INTEL_DESC_STATUS_PAYLEN ( len ) );
+}
+
+/**
+ * Populate receive descriptor
+ *
+ * @v rx		Receive descriptor
+ * @v addr		Data buffer address
+ * @v len		Length of data
+ */
+void intel_describe_rx ( struct intel_descriptor *rx, physaddr_t addr,
+			 size_t len __unused ) {
+
+	/* Populate transmit descriptor */
+	rx->address = cpu_to_le64 ( addr );
+	rx->length = 0;
+	rx->status = 0;
 }
 
 /******************************************************************************
@@ -483,10 +518,7 @@ void intel_refill_rx ( struct intel_nic *intel ) {
 
 		/* Populate receive descriptor */
 		address = virt_to_bus ( iobuf->data );
-		rx->address = cpu_to_le64 ( address );
-		rx->length = 0;
-		rx->status = 0;
-		rx->errors = 0;
+		intel->rx.describe ( rx, address, 0 );
 
 		/* Record I/O buffer */
 		assert ( intel->rx_iobuf[rx_idx] == NULL );
@@ -572,6 +604,13 @@ static int intel_open ( struct net_device *netdev ) {
 	/* Update link state */
 	intel_check_link ( netdev );
 
+	/* Apply required errata */
+	if ( intel->flags & INTEL_VMWARE ) {
+		DBGC ( intel, "INTEL %p applying VMware errata workaround\n",
+		       intel );
+		intel->force_icr = INTEL_IRQ_RXT0;
+	}
+
 	return 0;
 
 	intel_destroy_ring ( intel, &intel->rx );
@@ -621,6 +660,7 @@ int intel_transmit ( struct net_device *netdev, struct io_buffer *iobuf ) {
 	unsigned int tx_idx;
 	unsigned int tx_tail;
 	physaddr_t address;
+	size_t len;
 
 	/* Get next transmit descriptor */
 	if ( ( intel->tx.prod - intel->tx.cons ) >= INTEL_TX_FILL ) {
@@ -633,11 +673,8 @@ int intel_transmit ( struct net_device *netdev, struct io_buffer *iobuf ) {
 
 	/* Populate transmit descriptor */
 	address = virt_to_bus ( iobuf->data );
-	tx->address = cpu_to_le64 ( address );
-	tx->length = cpu_to_le16 ( iob_len ( iobuf ) );
-	tx->command = ( INTEL_DESC_CMD_RS | INTEL_DESC_CMD_IFCS |
-			INTEL_DESC_CMD_EOP );
-	tx->status = 0;
+	len = iob_len ( iobuf );
+	intel->tx.describe ( tx, address, len );
 	wmb();
 
 	/* Notify card that there are packets ready to transmit */
@@ -648,7 +685,7 @@ int intel_transmit ( struct net_device *netdev, struct io_buffer *iobuf ) {
 
 	DBGC2 ( intel, "INTEL %p TX %d is [%llx,%llx)\n", intel, tx_idx,
 		( ( unsigned long long ) address ),
-		( ( unsigned long long ) address + iob_len ( iobuf ) ) );
+		( ( unsigned long long ) address + len ) );
 
 	return 0;
 }
@@ -671,7 +708,7 @@ void intel_poll_tx ( struct net_device *netdev ) {
 		tx = &intel->tx.desc[tx_idx];
 
 		/* Stop if descriptor is still in use */
-		if ( ! ( tx->status & INTEL_DESC_STATUS_DD ) )
+		if ( ! ( tx->status & cpu_to_le32 ( INTEL_DESC_STATUS_DD ) ) )
 			return;
 
 		DBGC2 ( intel, "INTEL %p TX %d complete\n", intel, tx_idx );
@@ -702,7 +739,7 @@ void intel_poll_rx ( struct net_device *netdev ) {
 		rx = &intel->rx.desc[rx_idx];
 
 		/* Stop if descriptor is still in use */
-		if ( ! ( rx->status & INTEL_DESC_STATUS_DD ) )
+		if ( ! ( rx->status & cpu_to_le32 ( INTEL_DESC_STATUS_DD ) ) )
 			return;
 
 		/* Populate I/O buffer */
@@ -712,10 +749,10 @@ void intel_poll_rx ( struct net_device *netdev ) {
 		iob_put ( iobuf, len );
 
 		/* Hand off to network stack */
-		if ( rx->errors ) {
+		if ( rx->status & cpu_to_le32 ( INTEL_DESC_STATUS_RXE ) ) {
 			DBGC ( intel, "INTEL %p RX %d error (length %zd, "
-			       "errors %02x)\n",
-			       intel, rx_idx, len, rx->errors );
+			       "status %08x)\n", intel, rx_idx, len,
+			       le32_to_cpu ( rx->status ) );
 			netdev_rx_err ( netdev, iobuf, -EIO );
 		} else {
 			DBGC2 ( intel, "INTEL %p RX %d complete (length %zd)\n",
@@ -740,6 +777,7 @@ static void intel_poll ( struct net_device *netdev ) {
 	icr = readl ( intel->regs + INTEL_ICR );
 	profile_stop ( &intel_vm_poll_profiler );
 	profile_exclude ( &intel_vm_poll_profiler );
+	icr |= intel->force_icr;
 	if ( ! icr )
 		return;
 
@@ -758,6 +796,14 @@ static void intel_poll ( struct net_device *netdev ) {
 	/* Check link state, if applicable */
 	if ( icr & INTEL_IRQ_LSC )
 		intel_check_link ( netdev );
+
+	/* Check for unexpected interrupts */
+	if ( icr & ~( INTEL_IRQ_TXDW | INTEL_IRQ_TXQE | INTEL_IRQ_LSC |
+		      INTEL_IRQ_RXDMT0 | INTEL_IRQ_RXT0 | INTEL_IRQ_RXO ) ) {
+		DBGC ( intel, "INTEL %p unexpected ICR %08x\n", intel, icr );
+		/* Report as a TX error */
+		netdev_tx_err ( netdev, NULL, -ENOTSUP );
+	}
 
 	/* Refill RX ring */
 	intel_refill_rx ( intel );
@@ -821,8 +867,10 @@ static int intel_probe ( struct pci_device *pci ) {
 	memset ( intel, 0, sizeof ( *intel ) );
 	intel->port = PCI_FUNC ( pci->busdevfn );
 	intel->flags = pci->id->driver_data;
-	intel_init_ring ( &intel->tx, INTEL_NUM_TX_DESC, INTEL_TD );
-	intel_init_ring ( &intel->rx, INTEL_NUM_RX_DESC, INTEL_RD );
+	intel_init_ring ( &intel->tx, INTEL_NUM_TX_DESC, INTEL_TD,
+			  intel_describe_tx );
+	intel_init_ring ( &intel->rx, INTEL_NUM_RX_DESC, INTEL_RD,
+			  intel_describe_rx );
 
 	/* Fix up PCI device */
 	adjust_pci_device ( pci );
@@ -899,7 +947,7 @@ static struct pci_device_id intel_nics[] = {
 	PCI_ROM ( 0x8086, 0x100c, "82544gc", "82544GC (Copper)", 0 ),
 	PCI_ROM ( 0x8086, 0x100d, "82544gc-l", "82544GC (LOM)", 0 ),
 	PCI_ROM ( 0x8086, 0x100e, "82540em", "82540EM", 0 ),
-	PCI_ROM ( 0x8086, 0x100f, "82545em", "82545EM (Copper)", 0 ),
+	PCI_ROM ( 0x8086, 0x100f, "82545em", "82545EM (Copper)", INTEL_VMWARE ),
 	PCI_ROM ( 0x8086, 0x1010, "82546eb", "82546EB (Copper)", 0 ),
 	PCI_ROM ( 0x8086, 0x1011, "82545em-f", "82545EM (Fiber)", 0 ),
 	PCI_ROM ( 0x8086, 0x1012, "82546eb-f", "82546EB (Fiber)", 0 ),
@@ -1001,8 +1049,13 @@ static struct pci_device_id intel_nics[] = {
 	PCI_ROM ( 0x8086, 0x1527, "82580-f2", "82580 Fiber", 0 ),
 	PCI_ROM ( 0x8086, 0x1533, "i210", "I210", 0 ),
 	PCI_ROM ( 0x8086, 0x153a, "i217lm", "I217-LM", 0 ),
-	PCI_ROM ( 0x8086, 0x155a, "i218lm", "I218-LM", 0),
 	PCI_ROM ( 0x8086, 0x153b, "i217v", "I217-V", 0 ),
+	PCI_ROM ( 0x8086, 0x1559, "i218v", "I218-V", 0),
+	PCI_ROM ( 0x8086, 0x155a, "i218lm", "I218-LM", 0),
+	PCI_ROM ( 0x8086, 0x15a0, "i218lm-2", "I218-LM", 0 ),
+	PCI_ROM ( 0x8086, 0x15a1, "i218v-2", "I218-V", 0 ),
+	PCI_ROM ( 0x8086, 0x15a2, "i218lm-3", "I218-LM", 0 ),
+	PCI_ROM ( 0x8086, 0x15a3, "i218v-3", "I218-V", 0 ),
 	PCI_ROM ( 0x8086, 0x294c, "82566dc-2", "82566DC-2", 0 ),
 	PCI_ROM ( 0x8086, 0x2e6e, "cemedia", "CE Media Processor", 0 ),
 };

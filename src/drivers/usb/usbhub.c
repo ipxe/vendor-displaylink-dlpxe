@@ -331,6 +331,9 @@ static int hub_speed ( struct usb_hub *hub, struct usb_port *port ) {
 		port->speed = USB_SPEED_NONE;
 	}
 
+	/* Record disconnections */
+	port->disconnected |= ( changed & ( 1 << USB_HUB_PORT_CONNECTION ) );
+
 	/* Clear port status change bits */
 	if ( ( rc = hub_clear_changes ( hubdev, port->address, changed ) ) != 0)
 		return rc;
@@ -422,7 +425,7 @@ static int hub_probe ( struct usb_function *func,
 
 	/* Locate interrupt endpoint descriptor */
 	if ( ( rc = usb_endpoint_described ( &hubdev->intr, config, interface,
-					     USB_INTERRUPT, 0 ) ) != 0 ) {
+					     USB_INTERRUPT_IN, 0 ) ) != 0 ) {
 		DBGC ( hubdev, "HUB %s could not describe interrupt endpoint: "
 		       "%s\n", hubdev->name, strerror ( rc ) );
 		goto err_endpoint;
