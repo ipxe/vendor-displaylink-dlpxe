@@ -743,6 +743,8 @@ static unsigned int xhci_port_protocol ( struct xhci_device *xhci,
 					xhci_speed_name ( psi ) );
 			}
 		}
+		if ( xhci->quirks & XHCI_BAD_PSIV )
+			DBGC2 ( xhci, " (ignored)" );
 		DBGC2 ( xhci, "\n" );
 	}
 
@@ -800,7 +802,7 @@ static int xhci_port_speed ( struct xhci_device *xhci, unsigned int port,
 	psic = XHCI_SUPPORTED_PORTS_PSIC ( ports );
 
 	/* Use the default mappings if applicable */
-	if ( ! psic ) {
+	if ( ( psic == 0 ) || ( xhci->quirks & XHCI_BAD_PSIV ) ) {
 		switch ( psiv ) {
 		case XHCI_SPEED_LOW :	return USB_SPEED_LOW;
 		case XHCI_SPEED_FULL :	return USB_SPEED_FULL;
@@ -857,14 +859,14 @@ static int xhci_port_psiv ( struct xhci_device *xhci, unsigned int port,
 	psic = XHCI_SUPPORTED_PORTS_PSIC ( ports );
 
 	/* Use the default mappings if applicable */
-	if ( ! psic ) {
+	if ( ( psic == 0 ) || ( xhci->quirks & XHCI_BAD_PSIV ) ) {
 		switch ( speed ) {
 		case USB_SPEED_LOW :	return XHCI_SPEED_LOW;
 		case USB_SPEED_FULL :	return XHCI_SPEED_FULL;
 		case USB_SPEED_HIGH :	return XHCI_SPEED_HIGH;
 		case USB_SPEED_SUPER :	return XHCI_SPEED_SUPER;
 		default:
-			DBGC ( xhci, "XHCI %s-%d non-standad speed %d\n",
+			DBGC ( xhci, "XHCI %s-%d non-standard speed %d\n",
 			       xhci->name, port, speed );
 			return -ENOTSUP;
 		}
@@ -3197,6 +3199,7 @@ static int xhci_probe ( struct pci_device *pci ) {
 		goto err_alloc;
 	}
 	xhci->name = pci->dev.name;
+	xhci->quirks = pci->id->driver_data;
 
 	/* Fix up PCI device */
 	adjust_pci_device ( pci );
@@ -3218,7 +3221,7 @@ static int xhci_probe ( struct pci_device *pci ) {
 	xhci_legacy_claim ( xhci );
 
 	/* Fix Intel PCH-specific quirks, if applicable */
-	if ( pci->id->driver_data & XHCI_PCH )
+	if ( xhci->quirks & XHCI_PCH )
 		xhci_pch_fix ( xhci, pci );
 
 	/* Reset device */
@@ -3254,7 +3257,7 @@ static int xhci_probe ( struct pci_device *pci ) {
  err_alloc_bus:
 	xhci_reset ( xhci );
  err_reset:
-	if ( pci->id->driver_data & XHCI_PCH )
+	if ( xhci->quirks & XHCI_PCH )
 		xhci_pch_undo ( xhci, pci );
 	xhci_legacy_release ( xhci );
 	iounmap ( xhci->regs );
@@ -3276,7 +3279,7 @@ static void xhci_remove ( struct pci_device *pci ) {
 	unregister_usb_bus ( bus );
 	free_usb_bus ( bus );
 	xhci_reset ( xhci );
-	if ( pci->id->driver_data & XHCI_PCH )
+	if ( xhci->quirks & XHCI_PCH )
 		xhci_pch_undo ( xhci, pci );
 	xhci_legacy_release ( xhci );
 	iounmap ( xhci->regs );
@@ -3287,9 +3290,10 @@ static void xhci_remove ( struct pci_device *pci ) {
 static struct pci_device_id xhci_ids[] = {
 	PCI_ROM ( 0x8086, 0x9cb1, "xhci-pch", "xHCI (Intel PCH Z97)", XHCI_PCH ),
 	PCI_ROM ( 0x8086, 0x8c31, "xhci-pch", "xHCI (Intel Broadwell Lynx Point PCH)", XHCI_PCH ),
-	PCI_ROM ( 0x8086, 0xffff, "xhci-pch", "xHCI (Intel PCH)", XHCI_PCH ),
 	PCI_ROM ( 0x8086, 0x9d2f, "xhci-int", "xHCI (Intel)", XHCI_PCH ),
 	PCI_ROM ( 0x1033, 0x0194, "xhci-nec", "xHCI (Renesas)", 0 ),
+	PCI_ROM ( 0x8086, 0x9d2f, "xhci-skylake", "xHCI (Skylake)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
+	PCI_ROM ( 0x8086, 0xffff, "xhci-pch", "xHCI (Intel PCH)", XHCI_PCH ),
 	PCI_ROM ( 0xffff, 0xffff, "xhci", "xHCI", 0 ),
 };
 

@@ -1032,12 +1032,17 @@ struct xhci_pch {
 /** Intel PCH USB3 port routing mask register */
 #define XHCI_PCH_USB3PRM 0xdc
 
+/** Invalid protocol speed ID values quirk */
+#define XHCI_BAD_PSIV 0x0002
+
 /** An xHCI device */
 struct xhci_device {
 	/** Registers */
 	void *regs;
 	/** Name */
 	const char *name;
+	/** Quirks */
+	unsigned int quirks;
 
 	/** Capability registers */
 	void *cap;
