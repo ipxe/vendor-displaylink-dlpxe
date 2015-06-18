@@ -3290,7 +3290,6 @@ static void xhci_remove ( struct pci_device *pci ) {
 static struct pci_device_id xhci_ids[] = {
 	PCI_ROM ( 0x8086, 0x9cb1, "xhci-pch", "xHCI (Intel PCH Z97)", XHCI_PCH ),
 	PCI_ROM ( 0x8086, 0x8c31, "xhci-pch", "xHCI (Intel Broadwell Lynx Point PCH)", XHCI_PCH ),
-	PCI_ROM ( 0x8086, 0x9d2f, "xhci-int", "xHCI (Intel)", XHCI_PCH ),
 	PCI_ROM ( 0x1033, 0x0194, "xhci-nec", "xHCI (Renesas)", 0 ),
 	PCI_ROM ( 0x8086, 0x9d2f, "xhci-skylake", "xHCI (Skylake)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
 	PCI_ROM ( 0x8086, 0xffff, "xhci-pch", "xHCI (Intel PCH)", XHCI_PCH ),
