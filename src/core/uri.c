@@ -36,18 +36,23 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <ctype.h>
 #include <ipxe/vsprintf.h>
 #include <ipxe/params.h>
+#include <ipxe/tcpip.h>
 #include <ipxe/uri.h>
 
 /**
- * Decode URI field (in place)
+ * Decode URI field
  *
- * @v string		String
+ * @v encoded		Encoded field
+ * @v buf		Data buffer
+ * @v len		Length
+ * @ret len		Length of data
  *
  * URI decoding can never increase the length of a string; we can
  * therefore safely decode in place.
  */
-static void uri_decode ( char *string ) {
-	char *dest = string;
+size_t uri_decode ( const char *encoded, void *buf, size_t len ) {
+	uint8_t *out = buf;
+	unsigned int count = 0;
 	char hexbuf[3];
 	char *hexbuf_end;
 	char c;
@@ -55,18 +60,42 @@ static void uri_decode ( char *string ) {
 	unsigned int skip;
 
 	/* Copy string, decoding escaped characters as necessary */
-	do {
-		c = *(string++);
+	while ( ( c = *(encoded++) ) ) {
 		if ( c == '%' ) {
-			snprintf ( hexbuf, sizeof ( hexbuf ), "%s", string );
+			snprintf ( hexbuf, sizeof ( hexbuf ), "%s", encoded );
 			decoded = strtoul ( hexbuf, &hexbuf_end, 16 );
 			skip = ( hexbuf_end - hexbuf );
-			string += skip;
+			encoded += skip;
 			if ( skip )
 				c = decoded;
 		}
-		*(dest++) = c;
-	} while ( c );
+		if ( count < len )
+			out[count] = c;
+		count++;
+	}
+	return count;
+}
+
+/**
+ * Decode URI field in-place
+ *
+ * @v uri		URI
+ * @v field		URI field index
+ */
+static void uri_decode_inplace ( struct uri *uri, unsigned int field ) {
+	const char *encoded = uri_field ( uri, field );
+	char *decoded = ( ( char * ) encoded );
+	size_t len;
+
+	/* Do nothing if field is not present */
+	if ( ! encoded )
+		return;
+
+	/* Decode field in place */
+	len = uri_decode ( encoded, decoded, strlen ( encoded ) );
+
+	/* Terminate decoded string */
+	decoded[len] = '\0';
 }
 
 /**
@@ -115,10 +144,15 @@ static int uri_character_escaped ( char c, unsigned int field ) {
 	 * '%', the full set of characters with significance to the
 	 * URL parser is "/#:@?".  We choose for each URI field which
 	 * of these require escaping in our use cases.
+	 *
+	 * For the scheme field (equivalently, if field is zero), we
+	 * escape anything that has significance not just for our URI
+	 * parser but for any other URI parsers (e.g. HTTP query
+	 * string parsers, which care about '=' and '&').
 	 */
 	static const char *escaped[URI_FIELDS] = {
-		/* Scheme: escape everything */
-		[URI_SCHEME]	= "/#:@?",
+		/* Scheme or default: escape everything */
+		[URI_SCHEME]	= "/#:@?=&",
 		/* Opaque part: escape characters which would affect
 		 * the reparsing of the URI, allowing everything else
 		 * (e.g. ':', which will appear in iSCSI URIs).
@@ -157,14 +191,16 @@ static int uri_character_escaped ( char c, unsigned int field ) {
 /**
  * Encode URI field
  *
- * @v uri		URI
  * @v field		URI field index
- * @v buf		Buffer to contain encoded string
+ * @v raw		Raw data
+ * @v raw_len		Length of raw data
+ * @v buf		Buffer
  * @v len		Length of buffer
  * @ret len		Length of encoded string (excluding NUL)
  */
-size_t uri_encode ( const char *string, unsigned int field,
+size_t uri_encode ( unsigned int field, const void *raw, size_t raw_len,
 		    char *buf, ssize_t len ) {
+	const uint8_t *raw_bytes = ( ( const uint8_t * ) raw );
 	ssize_t remaining = len;
 	size_t used;
 	char c;
@@ -174,7 +210,8 @@ size_t uri_encode ( const char *string, unsigned int field,
 		buf[0] = '\0';
 
 	/* Copy string, escaping as necessary */
-	while ( ( c = *(string++) ) ) {
+	while ( raw_len-- ) {
+		c = *(raw_bytes++);
 		if ( uri_character_escaped ( c, field ) ) {
 			used = ssnprintf ( buf, remaining, "%%%02X", c );
 		} else {
@@ -185,6 +222,21 @@ size_t uri_encode ( const char *string, unsigned int field,
 	}
 
 	return ( len - remaining );
+}
+
+/**
+ * Encode URI field string
+ *
+ * @v field		URI field index
+ * @v string		String
+ * @v buf		Buffer
+ * @v len		Length of buffer
+ * @ret len		Length of encoded string (excluding NUL)
+ */
+size_t uri_encode_string ( unsigned int field, const char *string,
+			   char *buf, ssize_t len ) {
+
+	return uri_encode ( field, string, strlen ( string ), buf, len );
 }
 
 /**
@@ -368,10 +420,8 @@ struct uri * parse_uri ( const char *uri_string ) {
 	}
 
 	/* Decode fields in-place */
-	for ( field = 0 ; field < URI_FIELDS ; field++ ) {
-		if ( uri_field ( uri, field ) )
-			uri_decode ( ( char * ) uri_field ( uri, field ) );
-	}
+	for ( field = 0 ; field < URI_FIELDS ; field++ )
+		uri_decode_inplace ( uri, field );
 
  done:
 	DBGC ( uri, "URI parsed \"%s\" to", uri_string );
@@ -444,8 +494,8 @@ size_t format_uri ( const struct uri *uri, char *buf, size_t len ) {
 		}
 
 		/* Encode this field */
-		used += uri_encode ( uri_field ( uri, field ), field,
-				     ( buf + used ), ( len - used ) );
+		used += uri_encode_string ( field, uri_field ( uri, field ),
+					    ( buf + used ), ( len - used ) );
 
 		/* Suffix this field, if applicable */
 		if ( ( field == URI_SCHEME ) && ( ! uri->opaque ) ) {
@@ -662,30 +712,50 @@ struct uri * resolve_uri ( const struct uri *base_uri,
 }
 
 /**
- * Construct TFTP URI from next-server and filename
+ * Construct URI from server address and filename
  *
- * @v next_server	Next-server address
- * @v port		Port number, or zero to use the default port
+ * @v sa_server		Server address
  * @v filename		Filename
  * @ret uri		URI, or NULL on failure
  *
- * TFTP filenames specified via the DHCP next-server field often
+ * PXE TFTP filenames specified via the DHCP next-server field often
  * contain characters such as ':' or '#' which would confuse the
  * generic URI parser.  We provide a mechanism for directly
  * constructing a TFTP URI from the next-server and filename.
  */
-struct uri * tftp_uri ( struct in_addr next_server, unsigned int port,
-			const char *filename ) {
+struct uri * pxe_uri ( struct sockaddr *sa_server, const char *filename ) {
 	char buf[ 6 /* "65535" + NUL */ ];
-	struct uri uri;
+	struct sockaddr_tcpip *st_server =
+		( ( struct sockaddr_tcpip * ) sa_server );
+	struct uri tmp;
+	struct uri *uri;
 
-	memset ( &uri, 0, sizeof ( uri ) );
-	uri.scheme = "tftp";
-	uri.host = inet_ntoa ( next_server );
-	if ( port ) {
-		snprintf ( buf, sizeof ( buf ), "%d", port );
-		uri.port = buf;
+	/* Fail if filename is empty */
+	if ( ! ( filename && filename[0] ) )
+		return NULL;
+
+	/* If filename is a hierarchical absolute URI, then use that
+	 * URI.  (We accept only hierarchical absolute URIs, since PXE
+	 * filenames sometimes start with DOS drive letters such as
+	 * "C:\", which get misinterpreted as opaque absolute URIs.)
+	 */
+	uri = parse_uri ( filename );
+	if ( uri && uri_is_absolute ( uri ) && ( ! uri->opaque ) )
+		return uri;
+	uri_put ( uri );
+
+	/* Otherwise, construct a TFTP URI directly */
+	memset ( &tmp, 0, sizeof ( tmp ) );
+	tmp.scheme = "tftp";
+	tmp.host = sock_ntoa ( sa_server );
+	if ( ! tmp.host )
+		return NULL;
+	if ( st_server->st_port ) {
+		snprintf ( buf, sizeof ( buf ), "%d",
+			   ntohs ( st_server->st_port ) );
+		tmp.port = buf;
 	}
-	uri.path = filename;
-	return uri_dup ( &uri );
+	tmp.path = filename;
+	uri = uri_dup ( &tmp );
+	return uri;
 }

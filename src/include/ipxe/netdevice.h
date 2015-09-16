@@ -15,6 +15,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <ipxe/refcnt.h>
 #include <ipxe/settings.h>
 #include <ipxe/interface.h>
+#include <ipxe/retry.h>
 
 struct io_buffer;
 struct net_device;
@@ -392,6 +393,8 @@ struct net_device {
 	 * indicates the error preventing link-up.
 	 */
 	int link_rc;
+	/** Link block timer */
+	struct retry_timer link_block;
 	/** Maximum packet length
 	 *
 	 * This length includes any link-layer headers.
@@ -426,6 +429,14 @@ struct net_device {
 
 /** Network device receive queue processing is frozen */
 #define NETDEV_RX_FROZEN 0x0004
+
+/** Network device interrupts are unsupported
+ *
+ * This flag can be used by a network device to indicate that
+ * interrupts are not supported despite the presence of an irq()
+ * method.
+ */
+#define NETDEV_IRQ_UNSUPPORTED 0x0008
 
 /** Link-layer protocol table */
 #define LL_PROTOCOLS __table ( struct ll_protocol, "ll_protocols" )
@@ -614,6 +625,17 @@ netdev_link_ok ( struct net_device *netdev ) {
 }
 
 /**
+ * Check link block state of network device
+ *
+ * @v netdev		Network device
+ * @ret link_blocked	Link is blocked
+ */
+static inline __attribute__ (( always_inline )) int
+netdev_link_blocked ( struct net_device *netdev ) {
+	return ( timer_running ( &netdev->link_block ) );
+}
+
+/**
  * Check whether or not network device is open
  *
  * @v netdev		Network device
@@ -632,7 +654,8 @@ netdev_is_open ( struct net_device *netdev ) {
  */
 static inline __attribute__ (( always_inline )) int
 netdev_irq_supported ( struct net_device *netdev ) {
-	return ( netdev->op->irq != NULL );
+	return ( ( netdev->op->irq != NULL ) &&
+		 ! ( netdev->state & NETDEV_IRQ_UNSUPPORTED ) );
 }
 
 /**
@@ -661,6 +684,9 @@ extern void netdev_rx_freeze ( struct net_device *netdev );
 extern void netdev_rx_unfreeze ( struct net_device *netdev );
 extern void netdev_link_err ( struct net_device *netdev, int rc );
 extern void netdev_link_down ( struct net_device *netdev );
+extern void netdev_link_block ( struct net_device *netdev,
+				unsigned long timeout );
+extern void netdev_link_unblock ( struct net_device *netdev );
 extern int netdev_tx ( struct net_device *netdev, struct io_buffer *iobuf );
 extern void netdev_tx_defer ( struct net_device *netdev,
 			      struct io_buffer *iobuf );
