@@ -181,7 +181,8 @@ vmware : bin/8086100f.mrom bin/808610d3.mrom bin/10222000.rom bin/15ad07b0.rom
 #
 displaylink : bin/80869ca6--80869cb1--ncm.rom \
 	      bin/80861c26--80861c2d--ncm.rom \
-	      bin/10330194--ncm.rom bin/10227914--ncm.rom \
+	      bin/10330194--ncm.rom \
+	      bin/102215e0--ncm.rom bin/102215e1--ncm.rom bin/10227908--ncm.rom bin/10227914--ncm.rom \
 	      bin/80861c26--80869d2f--ncm.rom \
 	      bin/80861c26--80869d2f--808615d4--808615c1--ncm.rom \
 	      bin/8086a12f--80869d2f--ncm.rom \
@@ -189,7 +190,7 @@ displaylink : bin/80869ca6--80869cb1--ncm.rom \
 	      bin/80868c26--80868c2d--ncm.rom \
 	      bin/80869cb1--ncm.rom \
 	      bin/80869d2f--808615b5--808615db--808615d4--ncm.rom \
-	      bin/80869ca6--80861c26--80861c2d--80868c26--80868c2d--80869cb1--80868c31--10330194--10227914--80869d2f--8086a12f--808615b5--808615c1--808615db--808615d4--ncm.rom \
+	      bin/80869ca6--80861c26--80861c2d--80868c26--80868c2d--80869cb1--80868c31--10330194--102215e0--102215e1--10227908--10227914--80869d2f--8086a12f--808615b5--808615c1--808615db--808615d4--ncm.rom \
 	      bin/ncm.usb bin/ncm.rom
 	zip bin/DisplayLinkLegacyPXE $^ Readme.txt
 

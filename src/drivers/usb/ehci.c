@@ -2005,6 +2005,7 @@ static struct pci_device_id ehci_ids[] = {
 	PCI_ROM ( 0x8086, 0x1c2d, "ehci-cp2", "EHCI (Cougar Point #2)", 0 ),
 	PCI_ROM ( 0x8086, 0x8c26, "ehci-lp1", "EHCI (Lynx Point #2)", 0 ),
 	PCI_ROM ( 0x8086, 0x8c2d, "ehci-lp2", "EHCI (Lynx Point #2)", 0 ),
+	PCI_ROM ( 0x1022, 0x7908, "ehci-amd", "EHCI (AMD Bristol Ridge/ Carrizo)", 0 ),
 	PCI_ROM ( 0xffff, 0xffff, "ehci", "EHCI", 0 ),
 };
 
