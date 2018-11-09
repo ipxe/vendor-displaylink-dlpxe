@@ -183,7 +183,7 @@ displaylink : bin/80869ca6--80869cb1--ncm.rom \
 	      bin/80861c26--80861c2d--ncm.rom \
 	      bin/10330194--ncm.rom \
 	      bin/102215e0--ncm.rom bin/102215e1--ncm.rom bin/102215e5--ncm.rom \
-	      bin/102215e0--ncm.rom bin/102215e1--ncm.rom bin/102215e5--ncm.rom \
+	      bin/102215e0--102215e1--102215e5--ncm.rom \
 	      bin/10227908--ncm.rom bin/10227914--ncm.rom \
 	      bin/80861c26--80869d2f--ncm.rom \
 	      bin/80861c26--80869d2f--808615d4--808615c1--ncm.rom \
