@@ -3339,6 +3339,7 @@ static struct pci_device_id xhci_ids[] = {
 	PCI_ROM ( 0x8086, 0x5aa8, "xhci-apollolake", "xHCI (Apollolake)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
 	PCI_ROM ( 0x8086, 0xa36d, "xhci-coffeelake", "xHCI (Coffeelake)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
 	PCI_ROM ( 0x8086, 0x9ded, "xhci-whiskeylake", "xHCI (Whiskeylake)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
+	PCI_ROM ( 0x8086, 0x02ed, "xhci-cometlake", "xHCI (Cometlake)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
 	PCI_ROM ( 0x8086, 0xffff, "xhci-pch", "xHCI (Intel PCH)", XHCI_PCH ),
 	PCI_ROM ( 0xffff, 0xffff, "xhci", "xHCI", 0 ),
 };
