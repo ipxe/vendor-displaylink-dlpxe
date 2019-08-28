@@ -3329,6 +3329,7 @@ static struct pci_device_id xhci_ids[] = {
 	PCI_ROM ( 0x1022, 0x15E1, "xhci-amd", "xHCI (AMD Raven Ridge)", 0 ),
 	PCI_ROM ( 0x1022, 0x15E5, "xhci-amd", "xHCI (AMD Picasso R3)", 0 ),
 	PCI_ROM ( 0x1022, 0x7914, "xhci-amd", "xHCI (AMD Bristol Ridge / Carrizo)", 0 ),
+	PCI_ROM ( 0x1022, 0x1639, "xhci-amd", "xHCI (AMD Renoir)", 0 ),
 	PCI_ROM ( 0x8086, 0x9d2f, "xhci-skylake", "xHCI (Skylake)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
 	PCI_ROM ( 0x8086, 0xa12f, "xhci-skylake", "xHCI (Skylake-H)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
 	PCI_ROM ( 0x8086, 0x15b5, "xhci-thunderbolt", "xHCI (Thunderbolt AR SP B1)", 0 ),
