@@ -3341,6 +3341,12 @@ static struct pci_device_id xhci_ids[] = {
 	PCI_ROM ( 0x8086, 0xa36d, "xhci-coffeelake", "xHCI (Coffeelake)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
 	PCI_ROM ( 0x8086, 0x9ded, "xhci-whiskeylake", "xHCI (Whiskeylake)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
 	PCI_ROM ( 0x8086, 0x02ed, "xhci-cometlake", "xHCI (Cometlake)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
+	PCI_ROM ( 0x8086, 0x8a13, "xhci-icelake", "xHCI (ICE Lake Processor)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
+	PCI_ROM ( 0x8086, 0x34ed, "xhci-icelake", "xHCI (ICL Lake PCH)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
+	PCI_ROM ( 0x8086, 0x15f0, "xhci-titanridge", "xHCI (Titan Ridge DD)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
+	PCI_ROM ( 0x8086, 0x9a13, "xhci-tigerlake", "xHCI (Tiger Lake Processor)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
+	PCI_ROM ( 0x8086, 0xa0ed, "xhci-tigerlake", "xHCI (Tiger Lake PCH)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
+	PCI_ROM ( 0x8086, 0x06ed, "xhci-cometlake", "xHCI (Comet Lake-H PCH)", ( XHCI_PCH | XHCI_BAD_PSIV ) ),
 	PCI_ROM ( 0x8086, 0xffff, "xhci-pch", "xHCI (Intel PCH)", XHCI_PCH ),
 	PCI_ROM ( 0xffff, 0xffff, "xhci", "xHCI", 0 ),
 };
