@@ -1,0 +1,30 @@
+name: build
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-16.04
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 1
+    - name: install dependencies
+      run: |
+        sudo apt install liblzma-dev mkisofs
+    - name: build
+      run: |
+        cd src
+        make
+        rm -rf bin/deps
+        rm bin/*.o
+        rm bin/*.tmp
+    - name: Upload artifact
+      uses: actions/upload-artifact@v1.0.0
+      with:
+        name: bin
+        path: src/bin
