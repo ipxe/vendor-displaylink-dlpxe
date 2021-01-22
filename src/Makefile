@@ -198,7 +198,7 @@ vmware : bin/8086100f.mrom bin/808610d3.mrom bin/10222000.rom bin/15ad07b0.rom
 #
 # DisplayLink build target: ncm builds for USB flash key and known xHCI/EHCI
 #
-displaylink : bin/80869ca6--80869cb1--ncm.rom \
+DLOBJS : bin/80869ca6--80869cb1--ncm.rom \
 	      bin/80861c26--80861c2d--ncm.rom \
 	      bin/10330194--ncm.rom \
 	      bin/102215e0--ncm.rom bin/102215e1--ncm.rom bin/102215e5--ncm.rom \
@@ -226,8 +226,20 @@ displaylink : bin/80869ca6--80869cb1--ncm.rom \
         bin/8086a36d--80869ded--80868a13--808634ed--808615f0--80869a13--8086a0ed--808606ed--808602ed--80868a13--808634ed--808615f0--80869a13--8086a0ed--808606ed--ncm.rom \
 	      bin/10330194--102215e0--102215e1--102215e5--10227908--10227914--10221639--ncm.rom \
 	      bin/ncm.usb bin/ncm.rom
-	zip bin/DisplayLinkLegacyPXE $^  Readme.txt
 
+DL64DIR := bin-x86_64-pcbios
+DL32OBJS := $(addprefix bin/, $(DLOBJS))
+DL64OBJS := $(addprefix $(DL64DIR)/, $(DLOBJS))
+
+displaylink : $(DL32OBJS)
+	zip bin/DisplayLinkLegacyPXE $^ Readme.txt
+
+displaylink64 :
+	# To build for a different architecture, we have to specify it as makefile *targets*, not just dependencies.
+	# Therefore we need to call make recursively, like the "everything" target.
+	$(Q)$(MAKE) $(DL64OBJS)
+	zip $(DL64DIR)/DisplayLinkLegacyPXE $(DL64OBJS) Readme.txt
+	
 #bin/80869ca6--80861c26--80861c2d--80868c26--80868c2d--80869cb1--80868c31--10330194--80869d2f--8086a12f--808615b5--808615c1--808615db--808615d4--808631a8--80865aa8--8086a36d--80869ded--808602ed--80868a13--808634ed--808615f0--80869a13--8086a0ed--808606ed--ncm.rom \
 
 ###############################################################################
