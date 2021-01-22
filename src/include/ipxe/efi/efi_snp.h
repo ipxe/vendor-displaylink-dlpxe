@@ -7,6 +7,8 @@
  *
  */
 
+FILE_LICENCE ( GPL2_OR_LATER );
+
 #include <ipxe/list.h>
 #include <ipxe/netdevice.h>
 #include <ipxe/efi/efi.h>
@@ -57,6 +59,10 @@ struct efi_snp_device {
 	EFI_HII_CONFIG_ACCESS_PROTOCOL hii;
 	/** HII package list */
 	EFI_HII_PACKAGE_LIST_HEADER *package_list;
+	/** EFI child handle for HII association */
+	EFI_HANDLE hii_child_handle;
+	/** Device path of HII child handle */
+	EFI_DEVICE_PATH_PROTOCOL *hii_child_path;
 	/** HII handle */
 	EFI_HII_HANDLE hii_handle;
 	/** Device name */
@@ -70,7 +76,7 @@ struct efi_snp_device {
 };
 
 extern int efi_snp_hii_install ( struct efi_snp_device *snpdev );
-extern void efi_snp_hii_uninstall ( struct efi_snp_device *snpdev );
+extern int efi_snp_hii_uninstall ( struct efi_snp_device *snpdev );
 extern struct efi_snp_device * find_snpdev ( EFI_HANDLE handle );
 extern struct efi_snp_device * last_opened_snpdev ( void );
 extern void efi_snp_add_claim ( int delta );

@@ -328,8 +328,8 @@ static int rtl818x_init_rx_ring(struct net80211_device *dev)
 	struct rtl818x_rx_desc *entry;
 	int i;
 
-	priv->rx_ring = malloc_dma(sizeof(*priv->rx_ring) * RTL818X_RX_RING_SIZE,
-				   RTL818X_RING_ALIGN);
+	priv->rx_ring = malloc_phys(sizeof(*priv->rx_ring) * RTL818X_RX_RING_SIZE,
+				    RTL818X_RING_ALIGN);
 	priv->rx_ring_dma = virt_to_bus(priv->rx_ring);
 	if (!priv->rx_ring) {
 		DBG("rtl818x %s: cannot allocate RX ring\n", dev->netdev->name);
@@ -364,7 +364,7 @@ static void rtl818x_free_rx_ring(struct net80211_device *dev)
 		priv->rx_buf[i] = NULL;
 	}
 
-	free_dma(priv->rx_ring, sizeof(*priv->rx_ring) * RTL818X_RX_RING_SIZE);
+	free_phys(priv->rx_ring, sizeof(*priv->rx_ring) * RTL818X_RX_RING_SIZE);
 	priv->rx_ring = NULL;
 }
 
@@ -373,8 +373,8 @@ static int rtl818x_init_tx_ring(struct net80211_device *dev)
 	struct rtl818x_priv *priv = dev->priv;
 	int i;
 
-	priv->tx_ring = malloc_dma(sizeof(*priv->tx_ring) * RTL818X_TX_RING_SIZE,
-				   RTL818X_RING_ALIGN);
+	priv->tx_ring = malloc_phys(sizeof(*priv->tx_ring) * RTL818X_TX_RING_SIZE,
+				    RTL818X_RING_ALIGN);
 	priv->tx_ring_dma = virt_to_bus(priv->tx_ring);
 	if (!priv->tx_ring) {
 		DBG("rtl818x %s: cannot allocate TX ring\n", dev->netdev->name);
@@ -402,7 +402,7 @@ static void rtl818x_free_tx_ring(struct net80211_device *dev)
 		priv->tx_buf[i] = NULL;
 	}
 
-	free_dma(priv->tx_ring, sizeof(*priv->tx_ring) * RTL818X_TX_RING_SIZE);
+	free_phys(priv->tx_ring, sizeof(*priv->tx_ring) * RTL818X_TX_RING_SIZE);
 	priv->tx_ring = NULL;
 }
 
@@ -663,7 +663,8 @@ int rtl818x_probe(struct pci_device *pdev )
 	hwinfo = zalloc(sizeof(*hwinfo));
 	if (!hwinfo) {
 		DBG("rtl818x: hwinfo alloc failed\n");
-		return -ENOMEM;
+		err = -ENOMEM;
+		goto err_alloc_hwinfo;
 	}
 
 	adjust_pci_device(pdev);
@@ -671,7 +672,8 @@ int rtl818x_probe(struct pci_device *pdev )
 	dev = net80211_alloc(sizeof(*priv));
 	if (!dev) {
 		DBG("rtl818x: net80211 alloc failed\n");
-		return -ENOMEM;
+		err = -ENOMEM;
+		goto err_alloc_dev;
 	}
 
 	priv = dev->priv;
@@ -816,7 +818,9 @@ int rtl818x_probe(struct pci_device *pdev )
  err_free_dev:
 	pci_set_drvdata(pdev, NULL);
 	net80211_free(dev);
+ err_alloc_dev:
 	free(hwinfo);
+ err_alloc_hwinfo:
 	return err;
 }
 

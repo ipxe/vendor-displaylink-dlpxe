@@ -279,6 +279,8 @@ static int tftp_presize ( struct tftp_request *tftp, size_t filesize ) {
 	 * length is an exact multiple of the blocksize will have a
 	 * trailing zero-length block, which must be included.
 	 */
+	if ( tftp->blksize == 0 )
+		return -EINVAL;
 	num_blocks = ( ( filesize / tftp->blksize ) + 1 );
 	if ( ( rc = bitmap_resize ( &tftp->bitmap, num_blocks ) ) != 0 ) {
 		DBGC ( tftp, "TFTP %p could not resize bitmap to %d blocks: "
@@ -325,7 +327,7 @@ void tftp_set_mtftp_port ( unsigned int port ) {
  * @ret rc		Return status code
  */
 static int tftp_send_rrq ( struct tftp_request *tftp ) {
-	const char *path = tftp->uri->path;
+	const char *path = ( tftp->uri->path + 1 /* skip '/' */ );
 	struct tftp_rrq *rrq;
 	size_t len;
 	struct io_buffer *iobuf;
@@ -543,8 +545,7 @@ static void tftp_timer_expired ( struct retry_timer *timer, int fail ) {
  * @v value		Option value
  * @ret rc		Return status code
  */
-static int tftp_process_blksize ( struct tftp_request *tftp,
-				  const char *value ) {
+static int tftp_process_blksize ( struct tftp_request *tftp, char *value ) {
 	char *end;
 
 	tftp->blksize = strtoul ( value, &end, 10 );
@@ -565,8 +566,7 @@ static int tftp_process_blksize ( struct tftp_request *tftp,
  * @v value		Option value
  * @ret rc		Return status code
  */
-static int tftp_process_tsize ( struct tftp_request *tftp,
-				const char *value ) {
+static int tftp_process_tsize ( struct tftp_request *tftp, char *value ) {
 	char *end;
 
 	tftp->tsize = strtoul ( value, &end, 10 );
@@ -587,13 +587,11 @@ static int tftp_process_tsize ( struct tftp_request *tftp,
  * @v value		Option value
  * @ret rc		Return status code
  */
-static int tftp_process_multicast ( struct tftp_request *tftp,
-				    const char *value ) {
+static int tftp_process_multicast ( struct tftp_request *tftp, char *value ) {
 	union {
 		struct sockaddr sa;
 		struct sockaddr_in sin;
 	} socket;
-	char buf[ strlen ( value ) + 1 ];
 	char *addr;
 	char *port;
 	char *port_end;
@@ -602,8 +600,7 @@ static int tftp_process_multicast ( struct tftp_request *tftp,
 	int rc;
 
 	/* Split value into "addr,port,mc" fields */
-	memcpy ( buf, value, sizeof ( buf ) );
-	addr = buf;
+	addr = value;
 	port = strchr ( addr, ',' );
 	if ( ! port ) {
 		DBGC ( tftp, "TFTP %p multicast missing port,mc\n", tftp );
@@ -660,7 +657,7 @@ struct tftp_option {
 	 * @v value	Option value
 	 * @ret rc	Return status code
 	 */
-	int ( * process ) ( struct tftp_request *tftp, const char *value );
+	int ( * process ) ( struct tftp_request *tftp, char *value );
 };
 
 /** Recognised TFTP options */
@@ -680,7 +677,7 @@ static struct tftp_option tftp_options[] = {
  * @ret rc		Return status code
  */
 static int tftp_process_option ( struct tftp_request *tftp,
-				 const char *name, const char *value ) {
+				 const char *name, char *value ) {
 	struct tftp_option *option;
 
 	for ( option = tftp_options ; option->name ; option++ ) {
@@ -1067,6 +1064,8 @@ static int tftp_core_open ( struct interface *xfer, struct uri *uri,
 		return -EINVAL;
 	if ( ! uri->path )
 		return -EINVAL;
+	if ( uri->path[0] != '/' )
+		return -EINVAL;
 
 	/* Allocate and populate TFTP structure */
 	tftp = zalloc ( sizeof ( *tftp ) );
@@ -1180,13 +1179,12 @@ struct uri_opener mtftp_uri_opener __uri_opener = {
  */
 static int tftp_apply_settings ( void ) {
 	static struct in_addr tftp_server = { 0 };
-	struct in_addr last_tftp_server;
+	struct in_addr new_tftp_server;
 	char uri_string[32];
 	struct uri *uri;
 
 	/* Retrieve TFTP server setting */
-	last_tftp_server = tftp_server;
-	fetch_ipv4_setting ( NULL, &next_server_setting, &tftp_server );
+	fetch_ipv4_setting ( NULL, &next_server_setting, &new_tftp_server );
 
 	/* If TFTP server setting has changed, set the current working
 	 * URI to match.  Do it only when the TFTP server has changed
@@ -1195,18 +1193,19 @@ static int tftp_apply_settings ( void ) {
 	 * an unrelated setting and triggered all the settings
 	 * applicators.
 	 */
-	if ( tftp_server.s_addr != last_tftp_server.s_addr ) {
-		if ( tftp_server.s_addr ) {
-			snprintf ( uri_string, sizeof ( uri_string ),
-				   "tftp://%s/", inet_ntoa ( tftp_server ) );
-			uri = parse_uri ( uri_string );
-			if ( ! uri )
-				return -ENOMEM;
-		} else {
-			uri = NULL;
-		}
+	if ( new_tftp_server.s_addr &&
+	     ( new_tftp_server.s_addr != tftp_server.s_addr ) ) {
+		DBGC ( &tftp_server, "TFTP server changed %s => ",
+		       inet_ntoa ( tftp_server ) );
+		DBGC ( &tftp_server, "%s\n", inet_ntoa ( new_tftp_server ) );
+		snprintf ( uri_string, sizeof ( uri_string ),
+			   "tftp://%s/", inet_ntoa ( new_tftp_server ) );
+		uri = parse_uri ( uri_string );
+		if ( ! uri )
+			return -ENOMEM;
 		churi ( uri );
 		uri_put ( uri );
+		tftp_server = new_tftp_server;
 	}
 
 	return 0;

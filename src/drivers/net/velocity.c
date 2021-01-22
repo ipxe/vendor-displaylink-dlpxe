@@ -100,13 +100,15 @@ static int velocity_autopoll_start ( struct velocity_nic *vlc ) {
 /**
  * Read from MII register
  *
- * @v mii		MII interface
+ * @v mdio		MII interface
+ * @v phy		PHY address
  * @v reg		Register address
  * @ret value		Data read, or negative error
  */
-static int velocity_mii_read ( struct mii_interface *mii, unsigned int reg ) {
+static int velocity_mii_read ( struct mii_interface *mdio,
+			       unsigned int phy __unused, unsigned int reg ) {
 	struct velocity_nic *vlc =
-		container_of ( mii, struct velocity_nic, mii );
+		container_of ( mdio, struct velocity_nic, mdio );
 	int timeout = VELOCITY_TIMEOUT_US;
 	int result;
 
@@ -140,15 +142,17 @@ static int velocity_mii_read ( struct mii_interface *mii, unsigned int reg ) {
 /**
  * Write to MII register
  *
- * @v mii		MII interface
+ * @v mdio		MII interface
+ * @v phy		PHY address
  * @v reg		Register address
  * @v data		Data to write
  * @ret rc		Return status code
  */
-static int velocity_mii_write ( struct mii_interface *mii, unsigned int reg,
+static int velocity_mii_write ( struct mii_interface *mdio,
+				unsigned int phy __unused, unsigned int reg,
 				unsigned int data) {
 	struct velocity_nic *vlc =
-		container_of ( mii, struct velocity_nic, mii );
+		container_of ( mdio, struct velocity_nic, mdio );
 	int timeout = VELOCITY_TIMEOUT_US;
 
 	DBGC2 ( vlc, "VELOCITY %p MII write reg %d data 0x%04x\n",
@@ -194,14 +198,14 @@ static void velocity_set_link ( struct velocity_nic *vlc ) {
 	int tmp;
 
 	/* Advertise 1000MBit */
-	tmp = velocity_mii_read ( &vlc->mii, MII_CTRL1000 );
+	tmp = mii_read ( &vlc->mii, MII_CTRL1000 );
 	tmp |= ADVERTISE_1000FULL | ADVERTISE_1000HALF;
-	velocity_mii_write ( &vlc->mii, MII_CTRL1000, tmp );
+	mii_write ( &vlc->mii, MII_CTRL1000, tmp );
 
 	/* Enable GBit operation in MII Control Register */
-	tmp = velocity_mii_read ( &vlc->mii, MII_BMCR );
+	tmp = mii_read ( &vlc->mii, MII_BMCR );
 	tmp |= BMCR_SPEED1000;
-	velocity_mii_write ( &vlc->mii, MII_BMCR, tmp );
+	mii_write ( &vlc->mii, MII_BMCR, tmp );
 }
 
 /******************************************************************************
@@ -316,7 +320,8 @@ static int velocity_alloc_rings ( struct velocity_nic *vlc ) {
 	vlc->rx_prod = 0;
 	vlc->rx_cons = 0;
 	vlc->rx_commit = 0;
-	vlc->rx_ring = malloc_dma ( VELOCITY_RXDESC_SIZE, VELOCITY_RING_ALIGN );
+	vlc->rx_ring = malloc_phys ( VELOCITY_RXDESC_SIZE,
+				     VELOCITY_RING_ALIGN );
 	if ( ! vlc->rx_ring )
 		return -ENOMEM;
 
@@ -328,7 +333,8 @@ static int velocity_alloc_rings ( struct velocity_nic *vlc ) {
 	/* Allocate TX descriptor ring */
 	vlc->tx_prod = 0;
 	vlc->tx_cons = 0;
-	vlc->tx_ring = malloc_dma ( VELOCITY_TXDESC_SIZE, VELOCITY_RING_ALIGN );
+	vlc->tx_ring = malloc_phys ( VELOCITY_TXDESC_SIZE,
+				     VELOCITY_RING_ALIGN );
 	if ( ! vlc->tx_ring ) {
 		rc = -ENOMEM;
 		goto err_tx_alloc;
@@ -352,7 +358,7 @@ static int velocity_alloc_rings ( struct velocity_nic *vlc ) {
 	return 0;
 
 err_tx_alloc:
-	free_dma ( vlc->rx_ring, VELOCITY_RXDESC_SIZE );
+	free_phys ( vlc->rx_ring, VELOCITY_RXDESC_SIZE );
 	return rc;
 }
 
@@ -478,7 +484,7 @@ static void velocity_close ( struct net_device *netdev ) {
 	writew ( 0, vlc->regs + VELOCITY_RXDESCNUM );
 
 	/* Destroy RX ring */
-	free_dma ( vlc->rx_ring, VELOCITY_RXDESC_SIZE );
+	free_phys ( vlc->rx_ring, VELOCITY_RXDESC_SIZE );
 	vlc->rx_ring = NULL;
 	vlc->rx_prod = 0;
 	vlc->rx_cons = 0;
@@ -495,7 +501,7 @@ static void velocity_close ( struct net_device *netdev ) {
 	writew ( 0, vlc->regs + VELOCITY_TXDESCNUM );
 
 	/* Destroy TX ring */
-	free_dma ( vlc->tx_ring, VELOCITY_TXDESC_SIZE );
+	free_phys ( vlc->tx_ring, VELOCITY_TXDESC_SIZE );
 	vlc->tx_ring = NULL;
 	vlc->tx_prod = 0;
 	vlc->tx_cons = 0;
@@ -727,7 +733,7 @@ static int velocity_probe ( struct pci_device *pci ) {
 	adjust_pci_device ( pci );
 
 	/* Map registers */
-	vlc->regs = ioremap ( pci->membase, VELOCITY_BAR_SIZE );
+	vlc->regs = pci_ioremap ( pci, pci->membase, VELOCITY_BAR_SIZE );
 	vlc->netdev = netdev;
 
 	/* Reset the NIC */
@@ -747,7 +753,8 @@ static int velocity_probe ( struct pci_device *pci ) {
 	netdev->hw_addr[5] = readb ( vlc->regs + VELOCITY_MAC5 );
 
 	/* Initialise and reset MII interface */
-	mii_init ( &vlc->mii, &velocity_mii_operations );
+	mdio_init ( &vlc->mdio, &velocity_mii_operations );
+	mii_init ( &vlc->mii, &vlc->mdio, 0 );
 	if ( ( rc = mii_reset ( &vlc->mii ) ) != 0 ) {
 		DBGC ( vlc, "VELOCITY %p could not reset MII: %s\n",
 		       vlc, strerror ( rc ) );

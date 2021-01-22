@@ -175,6 +175,61 @@ static int ehci_ctrl_reachable ( struct ehci_device *ehci, void *ptr ) {
 
 /******************************************************************************
  *
+ * Diagnostics
+ *
+ ******************************************************************************
+ */
+
+/**
+ * Dump host controller registers
+ *
+ * @v ehci		EHCI device
+ */
+static __unused void ehci_dump ( struct ehci_device *ehci ) {
+	uint8_t caplength;
+	uint16_t hciversion;
+	uint32_t hcsparams;
+	uint32_t hccparams;
+	uint32_t usbcmd;
+	uint32_t usbsts;
+	uint32_t usbintr;
+	uint32_t frindex;
+	uint32_t ctrldssegment;
+	uint32_t periodiclistbase;
+	uint32_t asynclistaddr;
+	uint32_t configflag;
+
+	/* Do nothing unless debugging is enabled */
+	if ( ! DBG_LOG )
+		return;
+
+	/* Dump capability registers */
+	caplength = readb ( ehci->cap + EHCI_CAP_CAPLENGTH );
+	hciversion = readw ( ehci->cap + EHCI_CAP_HCIVERSION );
+	hcsparams = readl ( ehci->cap + EHCI_CAP_HCSPARAMS );
+	hccparams = readl ( ehci->cap + EHCI_CAP_HCCPARAMS );
+	DBGC ( ehci, "EHCI %s caplen %02x hciversion %04x hcsparams %08x "
+	       "hccparams %08x\n", ehci->name, caplength, hciversion,
+	       hcsparams,  hccparams );
+
+	/* Dump operational registers */
+	usbcmd = readl ( ehci->op + EHCI_OP_USBCMD );
+	usbsts = readl ( ehci->op + EHCI_OP_USBSTS );
+	usbintr = readl ( ehci->op + EHCI_OP_USBINTR );
+	frindex = readl ( ehci->op + EHCI_OP_FRINDEX );
+	ctrldssegment = readl ( ehci->op + EHCI_OP_CTRLDSSEGMENT );
+	periodiclistbase = readl ( ehci->op + EHCI_OP_PERIODICLISTBASE );
+	asynclistaddr = readl ( ehci->op + EHCI_OP_ASYNCLISTADDR );
+	configflag = readl ( ehci->op + EHCI_OP_CONFIGFLAG );
+	DBGC ( ehci, "EHCI %s usbcmd %08x usbsts %08x usbint %08x frindx "
+	       "%08x\n", ehci->name, usbcmd, usbsts, usbintr, frindex );
+	DBGC ( ehci, "EHCI %s ctrlds %08x period %08x asyncl %08x cfgflg "
+	       "%08x\n", ehci->name, ctrldssegment, periodiclistbase,
+	       asynclistaddr, configflag );
+}
+
+/******************************************************************************
+ *
  * USB legacy support
  *
  ******************************************************************************
@@ -233,6 +288,14 @@ static void ehci_legacy_claim ( struct ehci_device *ehci,
 	if ( ! legacy )
 		return;
 
+	/* Dump original SMI usage */
+	pci_read_config_dword ( pci, ( legacy + EHCI_USBLEGSUP_CTLSTS ),
+				&ctlsts );
+	if ( ctlsts ) {
+		DBGC ( ehci, "EHCI %s BIOS using SMIs: %08x\n",
+		       ehci->name, ctlsts );
+	}
+
 	/* Claim ownership */
 	pci_write_config_byte ( pci, ( legacy + EHCI_USBLEGSUP_OS ),
 				EHCI_USBLEGSUP_OS_OWNED );
@@ -276,9 +339,11 @@ static void ehci_legacy_claim ( struct ehci_device *ehci,
  */
 static void ehci_legacy_release ( struct ehci_device *ehci,
 				  struct pci_device *pci ) {
+	unsigned int legacy = ehci->legacy;
+	uint32_t ctlsts;
 
 	/* Do nothing unless legacy support capability is present */
-	if ( ! ehci->legacy )
+	if ( ! legacy )
 		return;
 
 	/* Do nothing if releasing ownership is prevented */
@@ -289,8 +354,14 @@ static void ehci_legacy_release ( struct ehci_device *ehci,
 	}
 
 	/* Release ownership */
-	pci_write_config_byte ( pci, ( ehci->legacy + EHCI_USBLEGSUP_OS ), 0 );
+	pci_write_config_byte ( pci, ( legacy + EHCI_USBLEGSUP_OS ), 0 );
 	DBGC ( ehci, "EHCI %s released ownership to BIOS\n", ehci->name );
+
+	/* Dump restored SMI usage */
+	pci_read_config_dword ( pci, ( legacy + EHCI_USBLEGSUP_CTLSTS ),
+				&ctlsts );
+	DBGC ( ehci, "EHCI %s BIOS reclaimed SMIs: %08x\n",
+	       ehci->name, ctlsts );
 }
 
 /******************************************************************************
@@ -494,8 +565,8 @@ static int ehci_ring_alloc ( struct ehci_device *ehci,
 	}
 
 	/* Allocate queue head */
-	ring->head = malloc_dma ( sizeof ( *ring->head ),
-				  ehci_align ( sizeof ( *ring->head ) ) );
+	ring->head = malloc_phys ( sizeof ( *ring->head ),
+				   ehci_align ( sizeof ( *ring->head ) ) );
 	if ( ! ring->head ) {
 		rc = -ENOMEM;
 		goto err_alloc_queue;
@@ -508,7 +579,7 @@ static int ehci_ring_alloc ( struct ehci_device *ehci,
 
 	/* Allocate transfer descriptors */
 	len = ( EHCI_RING_COUNT * sizeof ( ring->desc[0] ) );
-	ring->desc = malloc_dma ( len, sizeof ( ring->desc[0] ) );
+	ring->desc = malloc_phys ( len, sizeof ( ring->desc[0] ) );
 	if ( ! ring->desc ) {
 		rc = -ENOMEM;
 		goto err_alloc_desc;
@@ -536,10 +607,10 @@ static int ehci_ring_alloc ( struct ehci_device *ehci,
 	return 0;
 
  err_unreachable_desc:
-	free_dma ( ring->desc, len );
+	free_phys ( ring->desc, len );
  err_alloc_desc:
  err_unreachable_queue:
-	free_dma ( ring->head, sizeof ( *ring->head ) );
+	free_phys ( ring->head, sizeof ( *ring->head ) );
  err_alloc_queue:
 	free ( ring->iobuf );
  err_alloc_iobuf:
@@ -560,10 +631,11 @@ static void ehci_ring_free ( struct ehci_ring *ring ) {
 		assert ( ring->iobuf[i] == NULL );
 
 	/* Free transfer descriptors */
-	free_dma ( ring->desc, ( EHCI_RING_COUNT * sizeof ( ring->desc[0] ) ) );
+	free_phys ( ring->desc, ( EHCI_RING_COUNT *
+				  sizeof ( ring->desc[0] ) ) );
 
 	/* Free queue head */
-	free_dma ( ring->head, sizeof ( *ring->head ) );
+	free_phys ( ring->head, sizeof ( *ring->head ) );
 
 	/* Free I/O buffers */
 	free ( ring->iobuf );
@@ -970,10 +1042,10 @@ static uint32_t ehci_endpoint_characteristics ( struct usb_endpoint *ep ) {
 		chr |= EHCI_CHR_TOGGLE;
 
 	/* Determine endpoint speed */
-	if ( usb->port->speed == USB_SPEED_HIGH ) {
+	if ( usb->speed == USB_SPEED_HIGH ) {
 		chr |= EHCI_CHR_EPS_HIGH;
 	} else {
-		if ( usb->port->speed == USB_SPEED_FULL ) {
+		if ( usb->speed == USB_SPEED_FULL ) {
 			chr |= EHCI_CHR_EPS_FULL;
 		} else {
 			chr |= EHCI_CHR_EPS_LOW;
@@ -1481,8 +1553,7 @@ static void ehci_hub_close ( struct usb_hub *hub __unused ) {
  * @ret rc		Return status code
  */
 static int ehci_root_open ( struct usb_hub *hub ) {
-	struct usb_bus *bus = hub->bus;
-	struct ehci_device *ehci = usb_bus_get_hostdata ( bus );
+	struct ehci_device *ehci = usb_hub_get_drvdata ( hub );
 	uint32_t portsc;
 	unsigned int i;
 
@@ -1500,9 +1571,6 @@ static int ehci_root_open ( struct usb_hub *hub ) {
 	/* Wait 20ms after potentially enabling power to a port */
 	mdelay ( EHCI_PORT_POWER_DELAY_MS );
 
-	/* Record hub driver private data */
-	usb_hub_set_drvdata ( hub, ehci );
-
 	return 0;
 }
 
@@ -1516,9 +1584,6 @@ static void ehci_root_close ( struct usb_hub *hub ) {
 
 	/* Route all ports back to companion controllers */
 	writel ( 0, ehci->op + EHCI_OP_CONFIGFLAG );
-
-	/* Clear hub driver private data */
-	usb_hub_set_drvdata ( hub, NULL );
 }
 
 /**
@@ -1723,8 +1788,8 @@ static int ehci_bus_open ( struct usb_bus *bus ) {
 	assert ( list_empty ( &ehci->periodic ) );
 
 	/* Allocate and initialise asynchronous queue head */
-	ehci->head = malloc_dma ( sizeof ( *ehci->head ),
-				  ehci_align ( sizeof ( *ehci->head ) ) );
+	ehci->head = malloc_phys ( sizeof ( *ehci->head ),
+				   ehci_align ( sizeof ( *ehci->head ) ) );
 	if ( ! ehci->head ) {
 		rc = -ENOMEM;
 		goto err_alloc_head;
@@ -1752,7 +1817,7 @@ static int ehci_bus_open ( struct usb_bus *bus ) {
 	/* Allocate periodic frame list */
 	frames = EHCI_PERIODIC_FRAMES ( ehci->flsize );
 	len = ( frames * sizeof ( ehci->frame[0] ) );
-	ehci->frame = malloc_dma ( len, EHCI_PAGE_ALIGN );
+	ehci->frame = malloc_phys ( len, EHCI_PAGE_ALIGN );
 	if ( ! ehci->frame ) {
 		rc = -ENOMEM;
 		goto err_alloc_frame;
@@ -1772,10 +1837,10 @@ static int ehci_bus_open ( struct usb_bus *bus ) {
 
 	ehci_stop ( ehci );
  err_unreachable_frame:
-	free_dma ( ehci->frame, len );
+	free_phys ( ehci->frame, len );
  err_alloc_frame:
  err_ctrldssegment:
-	free_dma ( ehci->head, sizeof ( *ehci->head ) );
+	free_phys ( ehci->head, sizeof ( *ehci->head ) );
  err_alloc_head:
 	return rc;
 }
@@ -1797,10 +1862,10 @@ static void ehci_bus_close ( struct usb_bus *bus ) {
 	ehci_stop ( ehci );
 
 	/* Free periodic frame list */
-	free_dma ( ehci->frame, ( frames * sizeof ( ehci->frame[0] ) ) );
+	free_phys ( ehci->frame, ( frames * sizeof ( ehci->frame[0] ) ) );
 
 	/* Free asynchronous schedule */
-	free_dma ( ehci->head, sizeof ( *ehci->head ) );
+	free_phys ( ehci->head, sizeof ( *ehci->head ) );
 }
 
 /**
@@ -1925,7 +1990,7 @@ static int ehci_probe ( struct pci_device *pci ) {
 	/* Map registers */
 	bar_start = pci_bar_start ( pci, EHCI_BAR );
 	bar_size = pci_bar_size ( pci, EHCI_BAR );
-	ehci->regs = ioremap ( bar_start, bar_size );
+	ehci->regs = pci_ioremap ( pci, bar_start, bar_size );
 	if ( ! ehci->regs ) {
 		rc = -ENODEV;
 		goto err_ioremap;
@@ -2033,5 +2098,6 @@ static void ehci_shutdown ( int booting ) {
 
 /** Startup/shutdown function */
 struct startup_fn ehci_startup __startup_fn ( STARTUP_LATE ) = {
+	.name = "ehci",
 	.shutdown = ehci_shutdown,
 };

@@ -110,6 +110,10 @@ static void hub_complete ( struct usb_endpoint *ep,
 	}
 
  done:
+
+	/* Recycle I/O buffer */
+	usb_recycle ( &hubdev->intr, iobuf );
+
 	/* Start refill process */
 	process_add ( &hubdev->refill );
 }
@@ -154,6 +158,10 @@ static int hub_open ( struct usb_hub *hub ) {
 
 	/* Refill interrupt ring */
 	hub_refill ( hubdev );
+
+	/* Delay to allow ports to stabilise on out-of-spec hubs */
+	if ( hubdev->flags & USB_HUB_SLOW_START )
+		mdelay ( USB_HUB_SLOW_START_DELAY_MS );
 
 	return 0;
 
@@ -239,8 +247,10 @@ static int hub_disable ( struct usb_hub *hub, struct usb_port *port ) {
 	int rc;
 
 	/* Disable port */
-	if ( ( rc = usb_hub_clear_port_feature ( usb, port->address,
-						 USB_HUB_PORT_ENABLE, 0 ) )!=0){
+	if ( ( hub->protocol < USB_PROTO_3_0 ) &&
+	     ( ( rc = usb_hub_clear_port_feature ( usb, port->address,
+						   USB_HUB_PORT_ENABLE,
+						   0 ) ) != 0 ) ) {
 		DBGC ( hubdev, "HUB %s port %d could not disable: %s\n",
 		       hubdev->name, port->address, strerror ( rc ) );
 		return rc;
@@ -410,8 +420,9 @@ static int hub_probe ( struct usb_function *func,
 	hubdev->usb = usb;
 	hubdev->features =
 		( enhanced ? USB_HUB_FEATURES_ENHANCED : USB_HUB_FEATURES );
+	hubdev->flags = func->id->driver_data;
 	usb_endpoint_init ( &hubdev->intr, usb, &usb_hub_intr_operations );
-	usb_refill_init ( &hubdev->intr, 0, USB_HUB_INTR_FILL );
+	usb_refill_init ( &hubdev->intr, 0, 0, USB_HUB_INTR_FILL );
 	process_init_stopped ( &hubdev->refill, &hub_refill_desc, NULL );
 
 	/* Locate hub interface descriptor */
@@ -496,9 +507,10 @@ static void hub_remove ( struct usb_function *func ) {
 	unsigned int i;
 
 	/* If hub has been unplugged, mark all ports as unplugged */
-	if ( usb->port->speed == USB_SPEED_NONE ) {
+	if ( usb->port->disconnected ) {
 		for ( i = 1 ; i <= hub->ports ; i++ ) {
 			port = usb_port ( hub, i );
+			port->disconnected = 1;
 			port->speed = USB_SPEED_NONE;
 		}
 	}
@@ -516,6 +528,12 @@ static void hub_remove ( struct usb_function *func ) {
 
 /** USB hub device IDs */
 static struct usb_device_id hub_ids[] = {
+	{
+		.name = "avocent-hub",
+		.vendor = 0x0624,
+		.product = 0x0248,
+		.driver_data = USB_HUB_SLOW_START,
+	},
 	{
 		.name = "hub",
 		.vendor = USB_ANY_ID,

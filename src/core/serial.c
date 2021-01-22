@@ -30,6 +30,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
  */
 
 #include <stddef.h>
+#include <string.h>
 #include <ipxe/init.h>
 #include <ipxe/uart.h>
 #include <ipxe/console.h>
@@ -180,5 +181,6 @@ struct init_fn serial_console_init_fn __init_fn ( INIT_CONSOLE ) = {
 
 /** Serial console startup function */
 struct startup_fn serial_startup_fn __startup_fn ( STARTUP_EARLY ) = {
+	.name = "serial",
 	.shutdown = serial_shutdown,
 };

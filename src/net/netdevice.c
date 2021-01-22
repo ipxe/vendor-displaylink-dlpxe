@@ -307,6 +307,12 @@ int netdev_tx ( struct net_device *netdev, struct io_buffer *iobuf ) {
 	if ( ( rc = inject_fault ( NETDEV_DISCARD_RATE ) ) != 0 )
 		goto err;
 
+	/* Map for DMA, if required */
+	if ( netdev->dma && ( ! dma_mapped ( &iobuf->map ) ) ) {
+		if ( ( rc = iob_map_tx ( iobuf, netdev->dma ) ) != 0 )
+			goto err;
+	}
+
 	/* Transmit packet */
 	if ( ( rc = netdev->op->transmit ( netdev, iobuf ) ) != 0 )
 		goto err;
@@ -340,6 +346,9 @@ int netdev_tx ( struct net_device *netdev, struct io_buffer *iobuf ) {
  * Failure to do this will cause the retransmitted packet to be
  * immediately redeferred (which will result in out-of-order
  * transmissions and other nastiness).
+ *
+ * I/O buffers that have been mapped for DMA will remain mapped while
+ * present in the deferred transmit queue.
  */
 void netdev_tx_defer ( struct net_device *netdev, struct io_buffer *iobuf ) {
 
@@ -365,6 +374,9 @@ void netdev_tx_defer ( struct net_device *netdev, struct io_buffer *iobuf ) {
  *
  * The packet is discarded and a TX error is recorded.  This function
  * takes ownership of the I/O buffer.
+ *
+ * The I/O buffer will be automatically unmapped for DMA, if
+ * applicable.
  */
 void netdev_tx_err ( struct net_device *netdev,
 		     struct io_buffer *iobuf, int rc ) {
@@ -378,6 +390,10 @@ void netdev_tx_err ( struct net_device *netdev,
 		DBGC ( netdev, "NETDEV %s transmission %p failed: %s\n",
 		       netdev->name, iobuf, strerror ( rc ) );
 	}
+
+	/* Unmap I/O buffer, if required */
+	if ( iobuf && dma_mapped ( &iobuf->map ) )
+		iob_unmap ( iobuf );
 
 	/* Discard packet */
 	free_iob ( iobuf );
@@ -402,11 +418,24 @@ void netdev_tx_complete_err ( struct net_device *netdev,
 	list_del ( &iobuf->list );
 	netdev_tx_err ( netdev, iobuf, rc );
 
-	/* Transmit first pending packet, if any */
-	if ( ( iobuf = list_first_entry ( &netdev->tx_deferred,
-					  struct io_buffer, list ) ) != NULL ) {
+	/* Handle pending transmit queue */
+	while ( ( iobuf = list_first_entry ( &netdev->tx_deferred,
+					     struct io_buffer, list ) ) ) {
+
+		/* Remove from pending transmit queue */
 		list_del ( &iobuf->list );
+
+		/* When any transmit completion fails, cancel all
+		 * pending transmissions.
+		 */
+		if ( rc != 0 ) {
+			netdev_tx_err ( netdev, iobuf, -ECANCELED );
+			continue;
+		}
+
+		/* Otherwise, attempt to transmit the first pending packet */
 		netdev_tx ( netdev, iobuf );
+		break;
 	}
 }
 
@@ -449,10 +478,13 @@ static void netdev_tx_flush ( struct net_device *netdev ) {
  * Add packet to receive queue
  *
  * @v netdev		Network device
- * @v iobuf		I/O buffer, or NULL
+ * @v iobuf		I/O buffer
  *
  * The packet is added to the network device's RX queue.  This
  * function takes ownership of the I/O buffer.
+ *
+ * The I/O buffer will be automatically unmapped for DMA, if
+ * applicable.
  */
 void netdev_rx ( struct net_device *netdev, struct io_buffer *iobuf ) {
 	int rc;
@@ -465,6 +497,10 @@ void netdev_rx ( struct net_device *netdev, struct io_buffer *iobuf ) {
 		netdev_rx_err ( netdev, iobuf, rc );
 		return;
 	}
+
+	/* Unmap I/O buffer, if required */
+	if ( dma_mapped ( &iobuf->map ) )
+		iob_unmap ( iobuf );
 
 	/* Enqueue packet */
 	list_add_tail ( &iobuf->list, &netdev->rx_queue );
@@ -484,12 +520,19 @@ void netdev_rx ( struct net_device *netdev, struct io_buffer *iobuf ) {
  * takes ownership of the I/O buffer.  @c iobuf may be NULL if, for
  * example, the net device wishes to report an error due to being
  * unable to allocate an I/O buffer.
+ *
+ * The I/O buffer will be automatically unmapped for DMA, if
+ * applicable.
  */
 void netdev_rx_err ( struct net_device *netdev,
 		     struct io_buffer *iobuf, int rc ) {
 
 	DBGC ( netdev, "NETDEV %s failed to receive %p: %s\n",
 	       netdev->name, iobuf, strerror ( rc ) );
+
+	/* Unmap I/O buffer, if required */
+	if ( iobuf && dma_mapped ( &iobuf->map ) )
+		iob_unmap ( iobuf );
 
 	/* Discard packet */
 	free_iob ( iobuf );
@@ -663,6 +706,12 @@ int register_netdev ( struct net_device *netdev ) {
 		ll_protocol->init_addr ( netdev->hw_addr, netdev->ll_addr );
 	}
 
+	/* Set MTU, if not already set */
+	if ( ! netdev->mtu ) {
+		netdev->mtu = ( netdev->max_pkt_len -
+				ll_protocol->ll_header_len );
+	}
+
 	/* Reject network devices that are already available via a
 	 * different hardware device.
 	 */
@@ -671,6 +720,14 @@ int register_netdev ( struct net_device *netdev ) {
 		DBGC ( netdev, "NETDEV rejecting duplicate (phys %s) of %s "
 		       "(phys %s)\n", netdev->dev->name, duplicate->name,
 		       duplicate->dev->name );
+		rc = -EEXIST;
+		goto err_duplicate;
+	}
+
+	/* Reject named network devices that already exist */
+	if ( netdev->name[0] && ( duplicate = find_netdev ( netdev->name ) ) ) {
+		DBGC ( netdev, "NETDEV rejecting duplicate name %s\n",
+		       duplicate->name );
 		rc = -EEXIST;
 		goto err_duplicate;
 	}
@@ -725,6 +782,8 @@ int register_netdev ( struct net_device *netdev ) {
 	clear_settings ( netdev_settings ( netdev ) );
 	unregister_settings ( netdev_settings ( netdev ) );
  err_register_settings:
+	list_del ( &netdev->list );
+	netdev_put ( netdev );
  err_duplicate:
 	return rc;
 }
@@ -845,12 +904,9 @@ void unregister_netdev ( struct net_device *netdev ) {
  */
 void netdev_irq ( struct net_device *netdev, int enable ) {
 
-	/* Do nothing if device does not support interrupts */
-	if ( ! netdev_irq_supported ( netdev ) )
-		return;
-
-	/* Enable or disable device interrupts */
-	netdev->op->irq ( netdev, enable );
+	/* Enable or disable device interrupts, if applicable */
+	if ( netdev_irq_supported ( netdev ) )
+		netdev->op->irq ( netdev, enable );
 
 	/* Record interrupt enabled state */
 	netdev->state &= ~NETDEV_IRQ_ENABLED;
@@ -1100,15 +1156,35 @@ __weak unsigned int vlan_tag ( struct net_device *netdev __unused ) {
 }
 
 /**
- * Identify VLAN device (when VLAN support is not present)
+ * Add VLAN tag-stripped packet to queue (when VLAN support is not present)
  *
- * @v trunk		Trunk network device
- * @v tag		VLAN tag
- * @ret netdev		VLAN device, if any
+ * @v netdev		Network device
+ * @v tag		VLAN tag, or zero
+ * @v iobuf		I/O buffer
  */
-__weak struct net_device * vlan_find ( struct net_device *trunk __unused,
-				       unsigned int tag __unused ) {
-	return NULL;
+__weak void vlan_netdev_rx ( struct net_device *netdev, unsigned int tag,
+			     struct io_buffer *iobuf ) {
+
+	if ( tag == 0 ) {
+		netdev_rx ( netdev, iobuf );
+	} else {
+		netdev_rx_err ( netdev, iobuf, -ENODEV );
+	}
+}
+
+/**
+ * Discard received VLAN tag-stripped packet (when VLAN support is not present)
+ *
+ * @v netdev		Network device
+ * @v tag		VLAN tag, or zero
+ * @v iobuf		I/O buffer, or NULL
+ * @v rc		Packet status code
+ */
+__weak void vlan_netdev_rx_err ( struct net_device *netdev,
+				 unsigned int tag __unused,
+				 struct io_buffer *iobuf, int rc ) {
+
+	netdev_rx_err ( netdev, iobuf, rc );
 }
 
 /** Networking stack process */
@@ -1132,6 +1208,8 @@ static unsigned int net_discard ( void ) {
 
 			/* Discard first deferred packet */
 			list_del ( &iobuf->list );
+			if ( dma_mapped ( &iobuf->map ) )
+				iob_unmap ( iobuf );
 			free_iob ( iobuf );
 
 			/* Report discard */

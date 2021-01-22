@@ -12,6 +12,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <stdint.h>
 #include <ipxe/if_ether.h>
 #include <ipxe/nvs.h>
+#include <ipxe/dma.h>
 
 /** Intel BAR size */
 #define INTEL_BAR_SIZE ( 128 * 1024 )
@@ -185,12 +186,19 @@ struct intel_descriptor {
 #define INTEL_xDCTL 0x28
 #define INTEL_xDCTL_ENABLE	0x02000000UL	/**< Queue enable */
 
+/** Maximum time to wait for queue disable, in milliseconds */
+#define INTEL_DISABLE_MAX_WAIT_MS 100
+
 /** Receive Address Low */
 #define INTEL_RAL0 0x05400UL
 
 /** Receive Address High */
 #define INTEL_RAH0 0x05404UL
 #define INTEL_RAH0_AV		0x80000000UL	/**< Address valid */
+
+/** Future Extended NVM register 11 */
+#define INTEL_FEXTNVM11 0x05bbcUL
+#define INTEL_FEXTNVM11_WTF	0x00002000UL	/**< Don't ask */
 
 /** Receive address */
 union intel_receive_address {
@@ -205,6 +213,8 @@ union intel_receive_address {
 struct intel_ring {
 	/** Descriptors */
 	struct intel_descriptor *desc;
+	/** Descriptor ring DMA mapping */
+	struct dma_mapping map;
 	/** Producer index */
 	unsigned int prod;
 	/** Consumer index */
@@ -270,6 +280,8 @@ intel_init_mbox ( struct intel_mailbox *mbox, unsigned int ctrl,
 struct intel_nic {
 	/** Registers */
 	void *regs;
+	/** DMA device */
+	struct dma_device *dma;
 	/** Port number (for multi-port devices) */
 	unsigned int port;
 	/** Flags */
@@ -303,7 +315,14 @@ enum intel_flags {
 	INTEL_VMWARE = 0x0002,
 	/** PHY reset is broken */
 	INTEL_NO_PHY_RST = 0x0004,
+	/** ASDE is broken */
+	INTEL_NO_ASDE = 0x0008,
+	/** Reset may cause a complete device hang */
+	INTEL_RST_HANG = 0x0010,
 };
+
+/** The i219 has a seriously broken reset mechanism */
+#define INTEL_I219 ( INTEL_NO_PHY_RST | INTEL_RST_HANG )
 
 /**
  * Dump diagnostic information
@@ -330,6 +349,7 @@ extern void intel_describe_tx_adv ( struct intel_descriptor *tx,
 				    physaddr_t addr, size_t len );
 extern void intel_describe_rx ( struct intel_descriptor *rx,
 				physaddr_t addr, size_t len );
+extern void intel_reset_ring ( struct intel_nic *intel, unsigned int reg );
 extern int intel_create_ring ( struct intel_nic *intel,
 			       struct intel_ring *ring );
 extern void intel_destroy_ring ( struct intel_nic *intel,

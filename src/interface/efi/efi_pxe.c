@@ -41,7 +41,9 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <ipxe/efi/efi.h>
 #include <ipxe/efi/efi_snp.h>
 #include <ipxe/efi/efi_pxe.h>
+#include <ipxe/efi/efi_null.h>
 #include <ipxe/efi/Protocol/PxeBaseCode.h>
+#include <ipxe/efi/Protocol/AppleNetBoot.h>
 #include <usr/ifmgmt.h>
 #include <config/general.h>
 
@@ -80,6 +82,8 @@ struct efi_pxe {
 	EFI_PXE_BASE_CODE_PROTOCOL base;
 	/** PXE base code mode */
 	EFI_PXE_BASE_CODE_MODE mode;
+	/** Apple NetBoot protocol */
+	EFI_APPLE_NET_BOOT_PROTOCOL apple;
 
 	/** TCP/IP network-layer protocol */
 	struct tcpip_net_protocol *tcpip;
@@ -1498,6 +1502,83 @@ static EFI_PXE_BASE_CODE_PROTOCOL efi_pxe_base_code_protocol = {
 	.SetPackets	= efi_pxe_set_packets,
 };
 
+/******************************************************************************
+ *
+ * Apple NetBoot protocol
+ *
+ ******************************************************************************
+ */
+
+/**
+ * Get DHCP/BSDP response
+ *
+ * @v packet		Packet
+ * @v len		Length of data buffer
+ * @v data		Data buffer
+ * @ret efirc		EFI status code
+ */
+static EFI_STATUS EFIAPI
+efi_apple_get_response ( EFI_PXE_BASE_CODE_PACKET *packet, UINTN *len,
+			 VOID *data ) {
+
+	/* Check length */
+	if ( *len < sizeof ( *packet ) ) {
+		*len = sizeof ( *packet );
+		return EFI_BUFFER_TOO_SMALL;
+	}
+
+	/* Copy packet */
+	memcpy ( data, packet, sizeof ( *packet ) );
+	*len = sizeof ( *packet );
+
+	return EFI_SUCCESS;
+}
+
+/**
+ * Get DHCP response
+ *
+ * @v apple		Apple NetBoot protocol
+ * @v len		Length of data buffer
+ * @v data		Data buffer
+ * @ret efirc		EFI status code
+ */
+static EFI_STATUS EFIAPI
+efi_apple_get_dhcp_response ( EFI_APPLE_NET_BOOT_PROTOCOL *apple,
+			      UINTN *len, VOID *data ) {
+	struct efi_pxe *pxe = container_of ( apple, struct efi_pxe, apple );
+
+	return efi_apple_get_response ( &pxe->mode.DhcpAck, len, data );
+}
+
+/**
+ * Get BSDP response
+ *
+ * @v apple		Apple NetBoot protocol
+ * @v len		Length of data buffer
+ * @v data		Data buffer
+ * @ret efirc		EFI status code
+ */
+static EFI_STATUS EFIAPI
+efi_apple_get_bsdp_response ( EFI_APPLE_NET_BOOT_PROTOCOL *apple,
+			      UINTN *len, VOID *data ) {
+	struct efi_pxe *pxe = container_of ( apple, struct efi_pxe, apple );
+
+	return efi_apple_get_response ( &pxe->mode.PxeReply, len, data );
+}
+
+/** Apple NetBoot protocol */
+static EFI_APPLE_NET_BOOT_PROTOCOL efi_apple_net_boot_protocol = {
+	.GetDhcpResponse = efi_apple_get_dhcp_response,
+	.GetBsdpResponse = efi_apple_get_bsdp_response,
+};
+
+/******************************************************************************
+ *
+ * Installer
+ *
+ ******************************************************************************
+ */
+
 /**
  * Install PXE base code protocol
  *
@@ -1511,6 +1592,7 @@ int efi_pxe_install ( EFI_HANDLE handle, struct net_device *netdev ) {
 	struct efi_pxe *pxe;
 	struct in_addr ip;
 	BOOLEAN use_ipv6;
+	int leak = 0;
 	EFI_STATUS efirc;
 	int rc;
 
@@ -1526,6 +1608,8 @@ int efi_pxe_install ( EFI_HANDLE handle, struct net_device *netdev ) {
 	pxe->handle = handle;
 	memcpy ( &pxe->base, &efi_pxe_base_code_protocol, sizeof ( pxe->base ));
 	pxe->base.Mode = &pxe->mode;
+	memcpy ( &pxe->apple, &efi_apple_net_boot_protocol,
+		 sizeof ( pxe->apple ) );
 	pxe->buf.op = &efi_pxe_buf_operations;
 	intf_init ( &pxe->tftp, &efi_pxe_tftp_desc, &pxe->refcnt );
 	intf_init ( &pxe->udp, &efi_pxe_udp_desc, &pxe->refcnt );
@@ -1545,7 +1629,9 @@ int efi_pxe_install ( EFI_HANDLE handle, struct net_device *netdev ) {
 
 	/* Install PXE base code protocol */
 	if ( ( efirc = bs->InstallMultipleProtocolInterfaces (
-			&handle, &efi_pxe_base_code_protocol_guid, &pxe->base,
+			&handle,
+			&efi_pxe_base_code_protocol_guid, &pxe->base,
+			&efi_apple_net_boot_protocol_guid, &pxe->apple,
 			NULL ) ) != 0 ) {
 		rc = -EEFI ( efirc );
 		DBGC ( pxe, "PXE %s could not install base code protocol: %s\n",
@@ -1559,12 +1645,23 @@ int efi_pxe_install ( EFI_HANDLE handle, struct net_device *netdev ) {
 	       pxe->name, efi_handle_name ( handle ) );
 	return 0;
 
-	bs->UninstallMultipleProtocolInterfaces (
-			handle, &efi_pxe_base_code_protocol_guid, &pxe->base,
-			NULL );
+	if ( ( efirc = bs->UninstallMultipleProtocolInterfaces (
+			handle,
+			&efi_pxe_base_code_protocol_guid, &pxe->base,
+			&efi_apple_net_boot_protocol_guid, &pxe->apple,
+			NULL ) ) != 0 ) {
+		DBGC ( pxe, "PXE %s could not uninstall: %s\n",
+		       pxe->name, strerror ( -EEFI ( efirc ) ) );
+		leak = 1;
+	}
+	efi_nullify_pxe ( &pxe->base );
+	efi_nullify_apple ( &pxe->apple );
  err_install_protocol:
-	ref_put ( &pxe->refcnt );
+	if ( ! leak )
+		ref_put ( &pxe->refcnt );
  err_alloc:
+	if ( leak )
+		DBGC ( pxe, "PXE %s nullified and leaked\n", pxe->name );
 	return rc;
 }
 
@@ -1576,6 +1673,8 @@ int efi_pxe_install ( EFI_HANDLE handle, struct net_device *netdev ) {
 void efi_pxe_uninstall ( EFI_HANDLE handle ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
 	struct efi_pxe *pxe;
+	int leak = efi_shutdown_in_progress;
+	EFI_STATUS efirc;
 
 	/* Locate PXE base code */
 	pxe = efi_pxe_find ( handle );
@@ -1589,11 +1688,25 @@ void efi_pxe_uninstall ( EFI_HANDLE handle ) {
 	efi_pxe_stop ( &pxe->base );
 
 	/* Uninstall PXE base code protocol */
-	bs->UninstallMultipleProtocolInterfaces (
-			handle, &efi_pxe_base_code_protocol_guid, &pxe->base,
-			NULL );
+	if ( ( ! efi_shutdown_in_progress ) &&
+	     ( ( efirc = bs->UninstallMultipleProtocolInterfaces (
+			handle,
+			&efi_pxe_base_code_protocol_guid, &pxe->base,
+			&efi_apple_net_boot_protocol_guid, &pxe->apple,
+			NULL ) ) != 0 ) ) {
+		DBGC ( pxe, "PXE %s could not uninstall: %s\n",
+		       pxe->name, strerror ( -EEFI ( efirc ) ) );
+		leak = 1;
+	}
+	efi_nullify_pxe ( &pxe->base );
+	efi_nullify_apple ( &pxe->apple );
 
 	/* Remove from list and drop list's reference */
 	list_del ( &pxe->list );
-	ref_put ( &pxe->refcnt );
+	if ( ! leak )
+		ref_put ( &pxe->refcnt );
+
+	/* Report leakage, if applicable */
+	if ( leak && ( ! efi_shutdown_in_progress ) )
+		DBGC ( pxe, "PXE %s nullified and leaked\n", pxe->name );
 }

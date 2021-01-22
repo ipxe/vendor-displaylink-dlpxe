@@ -50,36 +50,35 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
  */
 int imgverify ( struct image *image, struct image *signature,
 		const char *name ) {
-	size_t len;
-	void *data;
+	struct asn1_cursor *data;
 	struct cms_signature *sig;
 	struct cms_signer_info *info;
 	time_t now;
+	int next;
 	int rc;
 
 	/* Mark image as untrusted */
 	image_untrust ( image );
 
-	/* Copy signature to internal memory */
-	len = signature->len;
-	data = malloc ( len );
-	if ( ! data ) {
-		rc = -ENOMEM;
-		goto err_alloc;
+	/* Get raw signature data */
+	next = image_asn1 ( signature, 0, &data );
+	if ( next < 0 ) {
+		rc = next;
+		goto err_asn1;
 	}
-	copy_from_user ( data, signature->data, 0, len );
 
 	/* Parse signature */
-	if ( ( rc = cms_signature ( data, len, &sig ) ) != 0 )
+	if ( ( rc = cms_signature ( data->data, data->len, &sig ) ) != 0 )
 		goto err_parse;
 
-	/* Free internal copy of signature */
+	/* Free raw signature data */
 	free ( data );
 	data = NULL;
 
 	/* Complete all certificate chains */
 	list_for_each_entry ( info, &sig->info, list ) {
-		if ( ( rc = create_validator ( &monojob, info->chain ) ) != 0 )
+		if ( ( rc = create_validator ( &monojob, info->chain,
+					       NULL ) ) != 0 )
 			goto err_create_validator;
 		if ( ( rc = monojob_wait ( NULL, 0 ) ) != 0 )
 			goto err_validator_wait;
@@ -107,7 +106,7 @@ int imgverify ( struct image *image, struct image *signature,
 	cms_put ( sig );
  err_parse:
 	free ( data );
- err_alloc:
+ err_asn1:
 	syslog ( LOG_ERR, "Image \"%s\" signature bad: %s\n",
 		 image->name, strerror ( rc ) );
 	return rc;

@@ -674,6 +674,7 @@ static struct x509_chain empty_store = {
 
 /** Root certificate list containing the iPXE self-test root CA */
 static struct x509_root test_root = {
+	.refcnt = REF_INIT ( ref_no_free ),
 	.digest = &x509_test_algorithm,
 	.count = 1,
 	.fingerprints = root_crt_fingerprint,
@@ -681,6 +682,7 @@ static struct x509_root test_root = {
 
 /** Root certificate list containing the iPXE self-test intermediate CA */
 static struct x509_root intermediate_root = {
+	.refcnt = REF_INIT ( ref_no_free ),
 	.digest = &x509_test_algorithm,
 	.count = 1,
 	.fingerprints = intermediate_crt_fingerprint,
@@ -695,6 +697,7 @@ static uint8_t dummy_fingerprint[] =
 
 /** Certificate store containing a dummy fingerprint */
 static struct x509_root dummy_root = {
+	.refcnt = REF_INIT ( ref_no_free ),
 	.digest = &x509_test_algorithm,
 	.count = 1,
 	.fingerprints = dummy_fingerprint,
@@ -942,6 +945,10 @@ static void x509_validate_chain_okx ( struct x509_test_chain *chn, time_t time,
 
 	x509_invalidate_chain ( chn->chain );
 	okx ( x509_validate_chain ( chn->chain, time, store, root ) == 0,
+	      file, line );
+	okx ( x509_is_valid ( chn->certs[0]->cert, root ),
+	      file, line );
+	okx ( ! x509_is_valid ( chn->certs[0]->cert, &dummy_root ),
 	      file, line );
 }
 #define x509_validate_chain_ok( chn, time, store, root ) \

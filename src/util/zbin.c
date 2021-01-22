@@ -144,6 +144,7 @@ static int read_zinfo_file ( const char *filename,
 
 static int alloc_output_file ( size_t max_len, struct output_file *output ) {
 	output->len = 0;
+	output->hdr_len = 0;
 	output->max_len = ( max_len );
 	output->buf = malloc ( max_len );
 	if ( ! output->buf ) {
@@ -241,19 +242,41 @@ static void bcj_filter ( void *data, size_t len ) {
 	};
 }
 
+#define CRCPOLY 0xedb88320
+#define CRCSEED 0xffffffff
+
+static uint32_t crc32_le ( uint32_t crc, const void *data, size_t len ) {
+	const uint8_t *src = data;
+	uint32_t mult;
+	unsigned int i;
+
+	while ( len-- ) {
+		crc ^= *(src++);
+		for ( i = 0 ; i < 8 ; i++ ) {
+			mult = ( ( crc & 1 ) ? CRCPOLY : 0 );
+			crc = ( ( crc >> 1 ) ^ mult );
+		}
+	}
+	return crc;
+}
+
 static int process_zinfo_pack ( struct input_file *input,
 				struct output_file *output,
 				union zinfo_record *zinfo ) {
 	struct zinfo_pack *pack = &zinfo->pack;
 	size_t offset = pack->offset;
 	size_t len = pack->len;
+	size_t start_len;
 	size_t packed_len = 0;
-	size_t remaining = ( output->max_len - output->len );
+	size_t remaining;
 	lzma_options_lzma options;
 	const lzma_filter filters[] = {
 		{ .id = LZMA_FILTER_LZMA1, .options = &options },
 		{ .id = LZMA_VLI_UNKNOWN }
 	};
+	void *packed;
+	uint32_t *len32;
+	uint32_t *crc32;
 
 	if ( ( offset + len ) > input->len ) {
 		fprintf ( stderr, "Input buffer overrun on pack\n" );
@@ -261,6 +284,9 @@ static int process_zinfo_pack ( struct input_file *input,
 	}
 
 	output->len = align ( output->len, pack->align );
+	start_len = output->len;
+	len32 = ( output->buf + output->len );
+	output->len += sizeof ( *len32 );
 	if ( output->len > output->max_len ) {
 		fprintf ( stderr, "Output buffer overrun on pack\n" );
 		return -1;
@@ -268,27 +294,33 @@ static int process_zinfo_pack ( struct input_file *input,
 
 	bcj_filter ( ( input->buf + offset ), len );
 
+	packed = ( output->buf + output->len );
+	remaining = ( output->max_len - output->len );
 	lzma_lzma_preset ( &options, LZMA_PRESET );
 	options.lc = LZMA_LC;
 	options.lp = LZMA_LP;
 	options.pb = LZMA_PB;
 	if ( lzma_raw_buffer_encode ( filters, NULL, ( input->buf + offset ),
-				      len, ( output->buf + output->len ),
-				      &packed_len, remaining ) != LZMA_OK ) {
+				      len, packed, &packed_len,
+				      remaining ) != LZMA_OK ) {
 		fprintf ( stderr, "Compression failure\n" );
 		return -1;
 	}
-
-	if ( DEBUG ) {
-		fprintf ( stderr, "PACK [%#zx,%#zx) to [%#zx,%#zx)\n",
-			  offset, ( offset + len ), output->len,
-			  ( output->len + packed_len ) );
-	}
-
 	output->len += packed_len;
+
+	crc32 = ( output->buf + output->len );
+	output->len += sizeof ( *crc32 );
 	if ( output->len > output->max_len ) {
 		fprintf ( stderr, "Output buffer overrun on pack\n" );
 		return -1;
+	}
+	*len32 = ( packed_len + sizeof ( *crc32 ) );
+	*crc32 = crc32_le ( CRCSEED, packed, packed_len );
+
+	if ( DEBUG ) {
+		fprintf ( stderr, "PACK [%#zx,%#zx) to [%#zx,%#zx) crc %#08x\n",
+			  offset, ( offset + len ), start_len, output->len,
+			  *crc32 );
 	}
 
 	return 0;
@@ -354,16 +386,16 @@ static int process_zinfo_add ( struct input_file *input
 		 ( ( 1UL << ( 8 * datasize ) ) - 1 ) : ~0UL );
 
 	if ( val < 0 ) {
-		fprintf ( stderr, "Add %s%#x+%#lx at %#zx %sflows field\n",
-			  ( ( addend < 0 ) ? "-" : "" ), abs ( addend ), size,
+		fprintf ( stderr, "Add %s%#lx+%#lx at %#zx %sflows field\n",
+			  ( ( addend < 0 ) ? "-" : "" ), labs ( addend ), size,
 			  offset, ( ( addend < 0 ) ? "under" : "over" ) );
 		return -1;
 	}
 
 	if ( val & ~mask ) {
-		fprintf ( stderr, "Add %s%#x+%#lx at %#zx overflows %zd-byte "
+		fprintf ( stderr, "Add %s%#lx+%#lx at %#zx overflows %zd-byte "
 			  "field (%d bytes too big)\n",
-			  ( ( addend < 0 ) ? "-" : "" ), abs ( addend ), size,
+			  ( ( addend < 0 ) ? "-" : "" ), labs ( addend ), size,
 			  offset, datasize,
 			  ( int )( ( val - mask - 1 ) * add->divisor ) );
 		return -1;
@@ -382,9 +414,9 @@ static int process_zinfo_add ( struct input_file *input
 	}
 
 	if ( DEBUG ) {
-		fprintf ( stderr, "ADDx [%#zx,%#zx) (%s%#x+(%#zx/%#x)) = "
+		fprintf ( stderr, "ADDx [%#zx,%#zx) (%s%#lx+(%#zx/%#x)) = "
 			  "%#lx\n", offset, ( offset + datasize ),
-			  ( ( addend < 0 ) ? "-" : "" ), abs ( addend ),
+			  ( ( addend < 0 ) ? "-" : "" ), labs ( addend ),
 			  len, add->divisor, val );
 	}
 

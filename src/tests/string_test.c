@@ -88,6 +88,7 @@ static void string_test_exec ( void ) {
 	ok ( strcmp ( "Hello", "hello" ) != 0 );
 	ok ( strcmp ( "Hello", "Hello world!" ) != 0 );
 	ok ( strcmp ( "Hello world!", "Hello" ) != 0 );
+	ok ( strcmp ( "abc", "def" ) < 0 );
 
 	/* Test strncmp() */
 	ok ( strncmp ( "", "", 0 ) == 0 );
@@ -108,6 +109,7 @@ static void string_test_exec ( void ) {
 	ok ( memcmp ( "", "", 0 ) == 0 );
 	ok ( memcmp ( "Foo", "Foo", 3 ) == 0 );
 	ok ( memcmp ( "Foo", "Bar", 3 ) != 0 );
+	ok ( memcmp ( "abc", "def", 3 ) < 0 );
 
 	/* Test strstr() */
 	{

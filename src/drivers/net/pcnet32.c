@@ -246,7 +246,7 @@ pcnet32_setup_rx_resources ( struct pcnet32_private *priv )
 {
 	DBGP ( "pcnet32_setup_rx_resources\n" );
 
-	priv->rx_base = malloc_dma ( RX_RING_BYTES, RX_RING_ALIGN );
+	priv->rx_base = malloc_phys ( RX_RING_BYTES, RX_RING_ALIGN );
 
 	DBG ( "priv->rx_base = %#08lx\n", virt_to_bus ( priv->rx_base ) );
 
@@ -270,7 +270,7 @@ pcnet32_free_rx_resources ( struct pcnet32_private *priv )
 
 	DBGP ( "pcnet32_free_rx_resources\n" );
 
-	free_dma ( priv->rx_base, RX_RING_BYTES );
+	free_phys ( priv->rx_base, RX_RING_BYTES );
 
 	for ( i = 0; i < RX_RING_SIZE; i++ ) {
 		free_iob ( priv->rx_iobuf[i] );
@@ -290,7 +290,7 @@ pcnet32_setup_tx_resources ( struct pcnet32_private *priv )
 {
 	DBGP ( "pcnet32_setup_tx_resources\n" );
 
-	priv->tx_base = malloc_dma ( TX_RING_BYTES, TX_RING_ALIGN );
+	priv->tx_base = malloc_phys ( TX_RING_BYTES, TX_RING_ALIGN );
 
 	if ( ! priv->tx_base ) {
 		return -ENOMEM;
@@ -312,7 +312,7 @@ pcnet32_free_tx_resources ( struct pcnet32_private *priv )
 {
 	DBGP ( "pcnet32_free_tx_resources\n" );
 
-	free_dma ( priv->tx_base, TX_RING_BYTES );
+	free_phys ( priv->tx_base, TX_RING_BYTES );
 }
 
 static int
@@ -414,8 +414,7 @@ pcnet32_chip_detect ( struct pcnet32_private *priv )
 	if (fset) {
 		a->write_bcr ( ioaddr, 18,
 			( a->read_bcr ( ioaddr, 18 ) | 0x0860 ) );
-		a->write_csr ( ioaddr, 80,
-			( a->read_csr ( ioaddr, 80 ) & 0x0C00) | 0x0C00 );
+		a->write_csr ( ioaddr, 80, 0x0c00 );
 	}
 
 	priv->full_duplex = fdx;

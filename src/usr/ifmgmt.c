@@ -33,6 +33,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <ipxe/job.h>
 #include <ipxe/monojob.h>
 #include <ipxe/timer.h>
+#include <ipxe/errortab.h>
 #include <usr/ifmgmt.h>
 
 /** @file
@@ -49,6 +50,11 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #define EINFO_EADDRNOTAVAIL_CONFIG					\
 	__einfo_uniqify ( EINFO_EADDRNOTAVAIL, 0x01,			\
 			  "No configuration methods succeeded" )
+
+/** Human-readable error message */
+struct errortab ifmgmt_errors[] __errortab = {
+	__einfo_errortab ( EINFO_EADDRNOTAVAIL_CONFIG ),
+};
 
 /**
  * Open network device
@@ -258,10 +264,12 @@ static int ifconf_progress ( struct ifpoller *ifpoller ) {
  *
  * @v netdev		Network device
  * @v configurator	Network device configurator, or NULL to use all
+ * @v timeout		Timeout period, in ticks
  * @ret rc		Return status code
  */
 int ifconf ( struct net_device *netdev,
-	     struct net_device_configurator *configurator ) {
+	     struct net_device_configurator *configurator,
+	     unsigned long timeout ) {
 	int rc;
 
 	/* Ensure device is open and link is up */
@@ -290,5 +298,5 @@ int ifconf ( struct net_device *netdev,
 		 ( configurator ? configurator->name : "" ),
 		 ( configurator ? "] " : "" ),
 		 netdev->name, netdev->ll_protocol->ntoa ( netdev->ll_addr ) );
-	return ifpoller_wait ( netdev, configurator, 0, ifconf_progress );
+	return ifpoller_wait ( netdev, configurator, timeout, ifconf_progress );
 }

@@ -186,7 +186,7 @@ static int ncm_in_prefill ( struct ncm_device *ncm ) {
 			count = NCM_IN_MIN_COUNT;
 		if ( ( count * mtu ) > NCM_IN_MAX_SIZE )
 			continue;
-		usb_refill_init ( &ncm->usbnet.in, mtu, count );
+		usb_refill_init ( &ncm->usbnet.in, 0, mtu, count );
 		if ( ( rc = usb_prefill ( &ncm->usbnet.in ) ) != 0 ) {
 			DBGC ( ncm, "NCM %p could not prefill %dx %zd-byte "
 			       "buffers for bulk IN\n", ncm, count, mtu );
@@ -558,6 +558,8 @@ static int ncm_probe ( struct usb_function *func,
 	struct usb_interface_descriptor *comms;
 	struct ecm_ethernet_descriptor *ethernet;
 	struct ncm_ntb_parameters params;
+	unsigned int remainder;
+	unsigned int divisor;
 	int rc;
 
 	/* Allocate and initialise structure */
@@ -575,7 +577,7 @@ static int ncm_probe ( struct usb_function *func,
 	ncm->netdev = netdev;
 	usbnet_init ( &ncm->usbnet, func, &ncm_intr_operations,
 		      &ncm_in_operations, &ncm_out_operations );
-	usb_refill_init ( &ncm->usbnet.intr, 0, NCM_INTR_COUNT );
+	usb_refill_init ( &ncm->usbnet.intr, 0, 0, NCM_INTR_COUNT );
 	DBGC ( ncm, "NCM %p on %s\n", ncm, func->name );
 
 	/* Describe USB network device */
@@ -616,14 +618,15 @@ static int ncm_probe ( struct usb_function *func,
 	DBGC2 ( ncm, "NCM %p maximum IN size is %zd bytes\n", ncm, ncm->mtu );
 
 	/* Calculate transmit padding */
-	ncm->padding = ( ( le16_to_cpu ( params.out.remainder ) -
-			   sizeof ( struct ncm_ntb_header ) - ETH_HLEN ) &
-			 ( le16_to_cpu ( params.out.divisor ) - 1 ) );
+	divisor = ( params.out.divisor ?
+		    le16_to_cpu ( params.out.divisor ) : 1 );
+	remainder = le16_to_cpu ( params.out.remainder );
+	ncm->padding = ( ( remainder - sizeof ( struct ncm_ntb_header ) -
+			   ETH_HLEN ) & ( divisor - 1 ) );
 	DBGC2 ( ncm, "NCM %p using %zd-byte transmit padding\n",
 		ncm, ncm->padding );
 	assert ( ( ( sizeof ( struct ncm_ntb_header ) + ncm->padding +
-		     ETH_HLEN ) % le16_to_cpu ( params.out.divisor ) ) ==
-		 le16_to_cpu ( params.out.remainder ) );
+		     ETH_HLEN ) % divisor ) == remainder );
 
 	/* Register network device */
 	if ( ( rc = register_netdev ( netdev ) ) != 0 )

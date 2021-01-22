@@ -246,6 +246,10 @@ struct net_device_operations {
 	 *
 	 * This method is guaranteed to be called only when the device
 	 * is open.
+	 *
+	 * If the network device has an associated DMA device, then
+	 * the I/O buffer will be automatically mapped for transmit
+	 * DMA.
 	 */
 	int ( * transmit ) ( struct net_device *netdev,
 			     struct io_buffer *iobuf );
@@ -358,6 +362,8 @@ struct net_device {
 	char name[NETDEV_NAME_LEN];
 	/** Underlying hardware device */
 	struct device *dev;
+	/** DMA device */
+	struct dma_device *dma;
 
 	/** Network device operations */
 	struct net_device_operations *op;
@@ -397,9 +403,16 @@ struct net_device {
 	struct retry_timer link_block;
 	/** Maximum packet length
 	 *
-	 * This length includes any link-layer headers.
+	 * This is the maximum packet length (including any link-layer
+	 * headers) supported by the hardware.
 	 */
 	size_t max_pkt_len;
+	/** Maximum transmission unit length
+	 *
+	 * This is the maximum transmission unit length (excluding any
+	 * link-layer headers) configured for the link.
+	 */
+	size_t mtu;
 	/** TX packet queue */
 	struct list_head tx_queue;
 	/** Deferred TX packet queue */

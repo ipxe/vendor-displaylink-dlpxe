@@ -54,7 +54,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 /* Raw private key data */
 extern char private_key_data[];
 extern char private_key_len[];
-__asm__ ( ".section \".rodata\", \"a\", @progbits\n\t"
+__asm__ ( ".section \".rodata\", \"a\", " PROGBITS "\n\t"
 	  "\nprivate_key_data:\n\t"
 #ifdef PRIVATE_KEY
 	  ".incbin \"" PRIVATE_KEY "\"\n\t"
@@ -64,7 +64,16 @@ __asm__ ( ".section \".rodata\", \"a\", @progbits\n\t"
 	  ".previous\n\t" );
 
 /** Private key */
-struct asn1_cursor private_key = {
+struct private_key private_key = {
+	.refcnt = REF_INIT ( ref_no_free ),
+	.builder = {
+		.data = private_key_data,
+		.len = ( ( size_t ) private_key_len ),
+	},
+};
+
+/** Default private key */
+static struct asn1_cursor default_private_key = {
 	.data = private_key_data,
 	.len = ( ( size_t ) private_key_len ),
 };
@@ -76,6 +85,19 @@ static struct setting privkey_setting __setting ( SETTING_CRYPTO, privkey ) = {
 	.tag = DHCP_EB_KEY,
 	.type = &setting_type_hex,
 };
+
+/**
+ * Free private key
+ *
+ * @v refcnt		Reference counter
+ */
+void privkey_free ( struct refcnt *refcnt ) {
+	struct private_key *key =
+		container_of ( refcnt, struct private_key, refcnt );
+
+	free ( key->builder.data );
+	free ( key );
+}
 
 /**
  * Apply private key configuration settings
@@ -92,23 +114,24 @@ static int privkey_apply_settings ( void ) {
 	if ( ALLOW_KEY_OVERRIDE ) {
 
 		/* Restore default private key */
-		private_key.data = private_key_data;
-		private_key.len = ( ( size_t ) private_key_len );
+		memcpy ( &private_key.builder, &default_private_key,
+			 sizeof ( private_key.builder ) );
 
 		/* Fetch new private key, if any */
 		free ( key_data );
 		if ( ( len = fetch_raw_setting_copy ( NULL, &privkey_setting,
 						      &key_data ) ) >= 0 ) {
-			private_key.data = key_data;
-			private_key.len = len;
+			private_key.builder.data = key_data;
+			private_key.builder.len = len;
 		}
 	}
 
 	/* Debug */
-	if ( private_key.len ) {
+	if ( private_key.builder.len ) {
 		DBGC ( &private_key, "PRIVKEY using %s private key:\n",
 		       ( key_data ? "external" : "built-in" ) );
-		DBGC_HDA ( &private_key, 0, private_key.data, private_key.len );
+		DBGC_HDA ( &private_key, 0, private_key.builder.data,
+			   private_key.builder.len );
 	} else {
 		DBGC ( &private_key, "PRIVKEY has no private key\n" );
 	}

@@ -338,7 +338,7 @@ static int netfront_create_ring ( struct netfront_nic *netfront,
 	ring->id_cons = 0;
 
 	/* Allocate and initialise shared ring */
-	ring->sring.raw = malloc_dma ( PAGE_SIZE, PAGE_SIZE );
+	ring->sring.raw = malloc_phys ( PAGE_SIZE, PAGE_SIZE );
 	if ( ! ring->sring.raw ) {
 		rc = -ENOMEM;
 		goto err_alloc;
@@ -368,7 +368,7 @@ static int netfront_create_ring ( struct netfront_nic *netfront,
  err_write_num:
 	xengrant_invalidate ( xen, ring->ref );
  err_permit_access:
-	free_dma ( ring->sring.raw, PAGE_SIZE );
+	free_phys ( ring->sring.raw, PAGE_SIZE );
  err_alloc:
 	return rc;
 }
@@ -490,7 +490,7 @@ static void netfront_destroy_ring ( struct netfront_nic *netfront,
 	xengrant_invalidate ( xen, ring->ref );
 
 	/* Free page */
-	free_dma ( ring->sring.raw, PAGE_SIZE );
+	free_phys ( ring->sring.raw, PAGE_SIZE );
 	ring->sring.raw = NULL;
 }
 
@@ -511,15 +511,12 @@ static void netfront_refill_rx ( struct net_device *netdev ) {
 	struct xen_device *xendev = netfront->xendev;
 	struct io_buffer *iobuf;
 	struct netif_rx_request *request;
+	unsigned int refilled = 0;
 	int notify;
 	int rc;
 
-	/* Do nothing if ring is already full */
-	if ( netfront_ring_is_full ( &netfront->rx ) )
-		return;
-
 	/* Refill ring */
-	do {
+	while ( netfront_ring_fill ( &netfront->rx ) < NETFRONT_RX_FILL ) {
 
 		/* Allocate I/O buffer */
 		iobuf = alloc_iob ( PAGE_SIZE );
@@ -543,13 +540,17 @@ static void netfront_refill_rx ( struct net_device *netdev ) {
 
 		/* Move to next descriptor */
 		netfront->rx_fring.req_prod_pvt++;
+		refilled++;
 
-	} while ( ! netfront_ring_is_full ( &netfront->rx ) );
+	}
 
 	/* Push new descriptors and notify backend if applicable */
-	RING_PUSH_REQUESTS_AND_CHECK_NOTIFY ( &netfront->rx_fring, notify );
-	if ( notify )
-		netfront_send_event ( netfront );
+	if ( refilled ) {
+		RING_PUSH_REQUESTS_AND_CHECK_NOTIFY ( &netfront->rx_fring,
+						      notify );
+		if ( notify )
+			netfront_send_event ( netfront );
+	}
 }
 
 /**

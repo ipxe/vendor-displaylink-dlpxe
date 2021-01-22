@@ -29,6 +29,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <assert.h>
 #include <ipxe/efi/efi.h>
 #include <ipxe/efi/efi_driver.h>
+#include <ipxe/efi/efi_path.h>
 #include <ipxe/efi/efi_utils.h>
 #include <ipxe/efi/Protocol/UsbIo.h>
 #include <ipxe/usb.h>
@@ -206,7 +207,7 @@ static int usbio_open ( struct usbio_device *usbio, unsigned int interface ) {
 	path = usbio->path;
 	usbpath = usbio->usbpath;
 	usbpath->InterfaceNumber = interface;
-	end = efi_devpath_end ( path );
+	end = efi_path_end ( path );
 
 	/* Locate handle for this endpoint's interface */
 	if ( ( efirc = bs->LocateDevicePath ( &efi_usb_io_protocol_guid, &path,
@@ -351,8 +352,7 @@ static void usbio_control_poll ( struct usbio_endpoint *endpoint ) {
 	}
 
 	/* Construct transfer */
-	assert ( iob_len ( iobuf ) >= sizeof ( *msg ) );
-	msg = iobuf->data;
+	msg = iob_push ( iobuf, sizeof ( *msg ) );
 	iob_pull ( iobuf, sizeof ( *msg ) );
 	request = le16_to_cpu ( msg->setup.request );
 	len = iob_len ( iobuf );
@@ -973,6 +973,10 @@ static int usbio_endpoint_enqueue ( struct usb_endpoint *ep,
 	unsigned int fill;
 	unsigned int index;
 
+	/* Fail if shutdown is in progress */
+	if ( efi_shutdown_in_progress )
+		return -ECANCELED;
+
 	/* Fail if transfer ring is full */
 	fill = ( endpoint->prod - endpoint->cons );
 	if ( fill >= USBIO_RING_COUNT )
@@ -995,6 +999,11 @@ static int usbio_endpoint_enqueue ( struct usb_endpoint *ep,
  */
 static int usbio_endpoint_message ( struct usb_endpoint *ep,
 				    struct io_buffer *iobuf ) {
+	struct usb_setup_packet *setup;
+
+	/* Adjust I/O buffer to start of data payload */
+	assert ( iob_len ( iobuf ) >= sizeof ( *setup ) );
+	iob_pull ( iobuf, sizeof ( *setup ) );
 
 	/* Enqueue transfer */
 	return usbio_endpoint_enqueue ( ep, iobuf, USBIO_MESSAGE );
@@ -1021,6 +1030,10 @@ static int usbio_endpoint_stream ( struct usb_endpoint *ep,
  * @v endpoint		Endpoint
  */
 static void usbio_endpoint_poll ( struct usbio_endpoint *endpoint ) {
+
+	/* Do nothing if shutdown is in progress */
+	if ( efi_shutdown_in_progress )
+		return;
 
 	/* Poll endpoint */
 	endpoint->op->poll ( endpoint );
@@ -1491,7 +1504,7 @@ static int usbio_path ( struct usbio_device *usbio ) {
 	path = u.interface;
 
 	/* Locate end of device path and sanity check */
-	len = efi_devpath_len ( path );
+	len = efi_path_len ( path );
 	if ( len < sizeof ( *usbpath ) ) {
 		DBGC ( usbio, "USBIO %s underlength device path\n",
 		       efi_handle_name ( handle ) );
