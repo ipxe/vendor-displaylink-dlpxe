@@ -1,0 +1,47 @@
+name: build
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-16.04
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 1
+    - name: install dependencies
+      run: |
+        sudo apt install liblzma-dev mkisofs
+    - name: prepare
+      run: |
+        cd src
+        mkdir ar
+    - name: build debug legacy PXE
+      run: |
+        make displaylink DEBUG=xhci,usb 
+        mv bin/DisplayLinkLegacyPXE.zip ar/DisplayLinkLegacyPXE_DEBUG_xhci-usb.zip
+    - name: build release legacy PXE
+      run: |
+        make displaylink
+        mv bin/DisplayLinkLegacyPXE.zip ar/DisplayLinkLegacyPXE_RELEASE.zip
+    - name: build release EFI
+      run: |
+        make bin-x86_64-efi/ncm.efi
+        make bin-x86_64-efi/ncm.efidrv
+        mv bin-x86_64-efi/ncm.efi ar/ncm-release.efi
+        mv bin-x86_64-efi/ncm.efidrv ar/ncm-release.efidrv
+    - name: build debug EFI
+      run: |
+        make bin-x86_64-efi/ncm.efi DEBUG=efi_driver:3,efi_usb,xhci,ehci,usb:3,ncm
+        make bin-x86_64-efi/ncm.efidrv DEBUG=efi_driver:3,efi_usb,xhci,ehci,usb:3,ncm
+        mv bin-x86_64-efi/ncm.efi ar/ncm-debug.efi
+        mv bin-x86_64-efi/ncm.efidrv ar/ncm-debug.efidrv
+    - name: Upload artifact
+      uses: actions/upload-artifact@v1.0.0
+      with:
+        name: all
+        path: src/ar
